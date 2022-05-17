@@ -12,6 +12,7 @@ import (
 
 func TestSetupDB(t *testing.T) {
 	db := newTestDB(t)
+	db.SetMaxOpenConns(1)
 	err := setupDB(context.Background(), db)
 	require.NoError(t, err)
 }
@@ -87,9 +88,9 @@ func sendMessage(t testing.TB, x API, persona, chanName string, p MessageParams)
 
 func readEvents(t testing.TB, x API, persona, chanName string) []Event {
 	ctx := context.Background()
-	msgs, err := x.Read(ctx, ChannelID{Persona: persona, Name: chanName}, EventPath{}, 0)
+	evs, err := x.Read(ctx, ChannelID{Persona: persona, Name: chanName}, EventPath{}, 0)
 	require.NoError(t, err)
-	return msgs
+	return evs
 }
 
 func createPersona(t testing.TB, x API, name string, ids []inet256.ID) {

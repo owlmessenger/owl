@@ -27,7 +27,7 @@ func (s *txStore) Post(ctx context.Context, data []byte) (cadata.ID, error) {
 	}
 	id := s.Hash(data)
 	if _, err := s.tx.Exec(`INSERT INTO blobs (id, data)
-		VALUES ($1, $2) ON CONFLICT DO NOTHING`, id[:], data); err != nil {
+		VALUES (?, ?) ON CONFLICT DO NOTHING`, id[:], data); err != nil {
 		return cadata.ID{}, err
 	}
 	if err := s.add(id); err != nil {
@@ -39,7 +39,7 @@ func (s *txStore) Post(ctx context.Context, data []byte) (cadata.ID, error) {
 func (s *txStore) Get(ctx context.Context, id cadata.ID, buf []byte) (int, error) {
 	var data []byte
 	if err := s.tx.Get(&data, `SELECT blobs.data FROM store_blobs JOIN blobs ON blob_id = blobs.id
-		WHERE store_id = $1 AND blob_id = $2
+		WHERE store_id = ? AND blob_id = ?
 	`, s.intID, id[:]); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			err = cadata.ErrNotFound
@@ -66,18 +66,18 @@ func (s *txStore) Add(ctx context.Context, id cadata.ID) error {
 
 func (s *txStore) add(id cadata.ID) error {
 	_, err := s.tx.Exec(`INSERT INTO store_blobs (store_id, blob_id)
-		VALUES ($1, $2) ON CONFLICT DO NOTHING`, s.intID, id[:])
+		VALUES (?, ?) ON CONFLICT DO NOTHING`, s.intID, id[:])
 	return err
 }
 
 func (s *txStore) Delete(ctx context.Context, id cadata.ID) error {
-	if _, err := s.tx.Exec(`DELETE FROM store_blobs WHERE store_id = $1 AND id = $2`, s.intID, id[:]); err != nil {
+	if _, err := s.tx.Exec(`DELETE FROM store_blobs WHERE store_id = ? AND id = ?`, s.intID, id[:]); err != nil {
 		return err
 	}
 	if count, err := s.count(id); err != nil {
 		return err
 	} else if count < 1 {
-		if _, err := s.tx.Exec(`DELETE FROM store_blobs WHERE `); err != nil {
+		if _, err := s.tx.Exec(`DELETE FROM blobs WHERE id = ?`, id[:]); err != nil {
 			return err
 		}
 	}
@@ -86,8 +86,8 @@ func (s *txStore) Delete(ctx context.Context, id cadata.ID) error {
 
 func (s *txStore) List(ctx context.Context, first cadata.ID, ids []cadata.ID) (int, error) {
 	rows, err := s.tx.Query(`SELECT blob_id FROM store_blobs
-		WHERE store_id = $1 AND blob_id >= $2
-		LIMIT $3
+		WHERE store_id = ? AND blob_id >= ?
+		LIMIT ?
 	`, s.intID, first[:], len(ids))
 	if err != nil {
 		return 0, err
@@ -120,7 +120,7 @@ func (s *txStore) Hash(x []byte) cadata.ID {
 }
 
 func (s *txStore) count(id cadata.ID) (count int, err error) {
-	err = s.tx.Get(&count, `SELECT count(distinct store_id) FROM store_blobs WHERE blob_id = $1`, id[:])
+	err = s.tx.Get(&count, `SELECT count(distinct store_id) FROM store_blobs WHERE blob_id = ?`, id[:])
 	return count, err
 }
 

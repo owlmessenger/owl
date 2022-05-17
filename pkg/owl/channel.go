@@ -81,7 +81,7 @@ func (s *Server) ListChannels(ctx context.Context, persona, begin string, limit 
 		JOIN channels ON  personas.id = channels.persona_id
 		WHERE personas.name = ? AND channels.name >= ?
 		ORDER BY channels.name
-		LIMIT $3
+		LIMIT ?
 	`, persona, begin, limit); err != nil {
 		return nil, err
 	}
@@ -93,17 +93,22 @@ func (s *Server) Send(ctx context.Context, cid ChannelID, mp MessageParams) erro
 		return err
 	}
 	// TODO: marshal message
-	msgData := marshalMessage(newMessage(mp))
 	// determine localID to send as and the feedID of the channel's feed.
 	var localID owlnet.PeerID
 	var feedID owlnet.FeedID
+	var msgData []byte
 	if err := dbutil.DoTx(ctx, s.db, func(tx *sqlx.Tx) error {
 		var err error
 		localID, err = s.getAuthor(tx, cid)
 		if err != nil {
 			return err
 		}
-		feedID, _, err = s.lookupChannelFeed(tx, cid)
+		var chanID int
+		feedID, chanID, err = s.lookupChannelFeed(tx, cid)
+		if err != nil {
+			return err
+		}
+		msgData = marshalMessage(s.newMessage(chanID, mp))
 		return err
 	}); err != nil {
 		return err
@@ -133,8 +138,7 @@ func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit
 		JOIN channels on personas.id = channels.persona_id
 		JOIN channel_events ON channels.id = channel_events.channel_id
 		JOIN blobs ON channel_events.blob_id = blobs.id
-		WHERE personas.name = ? AND channels.name = ?
-			AND channel_events.path >= ?
+		WHERE personas.name = ? AND channels.name = ? AND channel_events.path >= ?
 		LIMIT ?
 	`, cid.Persona, cid.Name, begin.Marshal(), limit); err != nil {
 		return nil, err
@@ -145,7 +149,7 @@ func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit
 		if err != nil {
 			return nil, err
 		}
-		ev, err := eventFromNode(*node)
+		ev, err := s.eventFromNode(s.db, cid.Persona, *node)
 		if err != nil {
 			return nil, err
 		}
@@ -154,7 +158,7 @@ func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit
 	return events, nil
 }
 
-func (s *Server) GetLatest(ctx context.Context, cid ChannelID) (EventPath, error) {
+func (s *Server) GetChannel(ctx context.Context, cid ChannelID) (*ChannelInfo, error) {
 	var data []byte
 	if err := s.db.SelectContext(ctx, &data, `SELECT max(channel_events.path) FROM personas
 		JOIN channels on personas.id = channels.persona_id
@@ -163,11 +167,11 @@ func (s *Server) GetLatest(ctx context.Context, cid ChannelID) (EventPath, error
 	`, cid.Persona, cid.Name); err != nil {
 		return nil, err
 	}
-	ei, err := ParseEventIndex(data)
+	ep, err := ParseEventPath(data)
 	if err != nil {
 		return nil, err
 	}
-	return ei, nil
+	return &ChannelInfo{Latest: ep}, nil
 }
 
 func (s *Server) Wait(ctx context.Context, cid ChannelID, since EventPath) (EventPath, error) {
@@ -194,8 +198,13 @@ type WireMessage struct {
 	Attachments map[string]glfs.Ref `json:"attachments"`
 }
 
-func newMessage(mp MessageParams) WireMessage {
+func (s *Server) newMessage(chanInt int, mp MessageParams) WireMessage {
+	if len(mp.Parent) > 0 {
+		// TODO: lookup the NodeID of the message and include that.
+		panic("parent messages not yet support")
+	}
 	return WireMessage{
+		SentAt:      tai64.Now(),
 		Type:        mp.Type,
 		Parent:      mp.Parent,
 		Body:        string(mp.Body),
@@ -219,17 +228,18 @@ func marshalMessage(m WireMessage) []byte {
 	return data
 }
 
-func eventFromNode(node feeds.Node) (*Event, error) {
+// eventFromNode converts a node in the Feed into an event.
+func (s *Server) eventFromNode(tx dbGetter, persona string, node feeds.Node) (*Event, error) {
 	switch {
 	case node.Init != nil:
 		return &Event{ChannelCreated: &struct{}{}}, nil
 	case node.AddPeer != nil:
-		return &Event{PeerAdded: &PeerAddedEvent{
+		return &Event{PeerAdded: &PeerAdded{
 			Peer:    node.AddPeer.Peer,
 			AddedBy: node.Author,
 		}}, nil
 	case node.RemovePeer != nil:
-		return &Event{PeerRemoved: &PeerRemovedEvent{
+		return &Event{PeerRemoved: &PeerRemoved{
 			Peer:      node.RemovePeer.Peer,
 			RemovedBy: node.Author,
 		}}, nil
@@ -238,12 +248,18 @@ func eventFromNode(node feeds.Node) (*Event, error) {
 		if err != nil {
 			return nil, err
 		}
+		contact, err := s.lookupName(tx, persona, node.Author)
+		if err != nil {
+			return nil, err
+		}
 		return &Event{
 			Message: &Message{
-				SentAt:  wmsg.SentAt.GoTime(),
-				Type:    wmsg.Type,
-				Headers: wmsg.Headers,
-				Body:    []byte(wmsg.Body),
+				FromContact: contact,
+				FromPeer:    node.Author,
+				SentAt:      wmsg.SentAt.GoTime(),
+				Type:        wmsg.Type,
+				Headers:     wmsg.Headers,
+				Body:        []byte(wmsg.Body),
 			},
 		}, nil
 	default:

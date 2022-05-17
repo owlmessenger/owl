@@ -44,7 +44,7 @@ func newChatCmd(load loadFunc) *cobra.Command {
 					return nil
 				}
 				m := e.Message
-				_, err := fmt.Fprintf(out, "%v %v %s: %s\n", i, m.SentAt, m.From, string(m.Body))
+				_, err := fmt.Fprintf(out, "%v %v %x %s:\t%s\n", i, m.SentAt, m.FromPeer[:8], m.FromContact, string(m.Body))
 				return err
 			})
 		})

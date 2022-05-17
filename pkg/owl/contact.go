@@ -2,6 +2,8 @@ package owl
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 
 	"github.com/inet256/inet256/pkg/inet256"
 	"github.com/jmoiron/sqlx"
@@ -71,4 +73,23 @@ func (s *Server) getIntroPeer(tx *sqlx.Tx, persona string, contact string) (ret 
 		return PeerID{}, err
 	}
 	return inet256.AddrFromBytes(introBytes), nil
+}
+
+// lookupName returns the contact name for a peer
+func (s *Server) lookupName(tx dbGetter, persona string, peerID PeerID) (string, error) {
+	var name string
+	// first try intro_id
+	if err := tx.Get(&name, `SELECT persona_contacts.name FROM personas
+		JOIN persona_contacts ON personas.id = persona_contacts.persona_id
+		WHERE personas.name = ? AND persona_contacts.intro_peer = ?
+	`, persona, peerID[:]); !errors.Is(err, sql.ErrNoRows) {
+		return name, err
+	}
+	if err := tx.Get(&name, `SELECT personas.name FROM personas
+		JOIN persona_keys ON personas.id = persona_keys.persona_id
+		WHERE personas.name = ? AND persona_keys.id = ?
+	`, persona, peerID[:]); !errors.Is(err, sql.ErrNoRows) {
+		return name, err
+	}
+	panic("no key for contact")
 }
