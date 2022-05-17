@@ -2,13 +2,15 @@ package feeds
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 	"math"
 
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/inet256/inet256/pkg/inet256"
+	"github.com/owlmessenger/owl/pkg/feeds/internal/wire"
 	"github.com/owlmessenger/owl/pkg/heap"
 	"golang.org/x/crypto/sha3"
+	"google.golang.org/protobuf/proto"
 )
 
 const MaxNodeSize = 1 << 16
@@ -18,14 +20,14 @@ type NodeID = cadata.ID
 // Node is an entry in the Feed.
 // Also a Node/Vertex in the DAG
 type Node struct {
-	N        uint64        `json:"n"`
-	Previous IDSet[NodeID] `json:"previous"`
-	Author   PeerID        `json:"author"`
+	N        uint64
+	Previous IDSet[NodeID]
+	Author   PeerID
 
-	Init       *Init       `json:"init,omitempty"`
-	AddPeer    *AddPeer    `json:"add_peer,omitempty"`
-	RemovePeer *RemovePeer `json:"remove_peer,omitempty"`
-	Data       []byte      `json:"data,omitempty"`
+	Init       *Init
+	AddPeer    *AddPeer
+	RemovePeer *RemovePeer
+	Data       []byte
 }
 
 type Init struct {
@@ -49,20 +51,122 @@ func NewNodeID(e Node) NodeID {
 	return Hash(e.Marshal())
 }
 
-func ParseNode(x []byte) (*Node, error) {
-	var m Node
-	if err := json.Unmarshal(x, &m); err != nil {
+func ParseNode(data []byte) (*Node, error) {
+	var x wire.Node
+	if err := proto.Unmarshal(data, &x); err != nil {
 		return nil, err
 	}
-	return &m, nil
+	var err error
+	n := &Node{
+		N: x.N,
+	}
+	// author
+	if n.Author, err = peerIDFromBytes(x.Author); err != nil {
+		return nil, err
+	}
+	// previous
+	for i := range x.Previous {
+		prev, err := nodeIDFromBytes(x.Previous[i])
+		if err != nil {
+			return nil, err
+		}
+		n.Previous = append(n.Previous, prev)
+	}
+	switch v := x.Value.(type) {
+	case *wire.Node_Init:
+		var peers []PeerID
+		for i := range v.Init.Peers {
+			peerID, err := peerIDFromBytes(v.Init.Peers[i])
+			if err != nil {
+				return nil, err
+			}
+			peers = append(peers, peerID)
+		}
+		var salt [32]byte
+		copy(salt[:], v.Init.Salt)
+		n.Init = &Init{
+			Salt:  salt,
+			Peers: peers,
+		}
+	case *wire.Node_AddPeer:
+		peerID, err := peerIDFromBytes(v.AddPeer.Peer)
+		if err != nil {
+			return nil, err
+		}
+		n.AddPeer = &AddPeer{Peer: peerID}
+	case *wire.Node_RemovePeer:
+		peerID, err := peerIDFromBytes(v.RemovePeer.Peer)
+		if err != nil {
+			return nil, err
+		}
+		n.RemovePeer = &RemovePeer{Peer: peerID}
+	case *wire.Node_Data:
+		n.Data = v.Data
+		if n.Data == nil {
+			n.Data = []byte{}
+		}
+	default:
+		return nil, fmt.Errorf("node cannot be empty")
+	}
+	return n, nil
 }
 
-func (e *Node) Marshal() []byte {
-	data, err := json.Marshal(e)
+func (n *Node) Marshal() []byte {
+	// TODO: actual deterministic serialization
+	m := proto.MarshalOptions{
+		Deterministic: true,
+	}
+	var previous [][]byte
+	for i := range n.Previous {
+		previous = append(previous, n.Previous[i][:])
+	}
+	w := &wire.Node{
+		N:        n.N,
+		Author:   n.Author[:],
+		Previous: previous,
+	}
+	switch {
+	case n.Init != nil:
+		var peers [][]byte
+		for i := range n.Init.Peers {
+			peers = append(peers, n.Init.Peers[i][:])
+		}
+		w.Value = &wire.Node_Init{Init: &wire.Init{
+			Salt:  n.Init.Salt[:],
+			Peers: peers,
+		}}
+	case n.AddPeer != nil:
+		w.Value = &wire.Node_AddPeer{AddPeer: &wire.AddPeer{
+			Peer: n.AddPeer.Peer[:],
+		}}
+	case n.RemovePeer != nil:
+		w.Value = &wire.Node_RemovePeer{RemovePeer: &wire.RemovePeer{
+			Peer: n.RemovePeer.Peer[:],
+		}}
+	case n.Data != nil:
+		w.Value = &wire.Node_Data{Data: n.Data}
+	default:
+		panic("empty node")
+	}
+	data, err := m.Marshal(w)
 	if err != nil {
 		panic(err)
 	}
 	return data
+}
+
+func peerIDFromBytes(x []byte) (PeerID, error) {
+	if len(x) != 32 {
+		return PeerID{}, fmt.Errorf("wrong length for PeerID HAVE: %d WANT: %d", len(x), 32)
+	}
+	return inet256.AddrFromBytes(x), nil
+}
+
+func nodeIDFromBytes(x []byte) (NodeID, error) {
+	if len(x) != 32 {
+		return NodeID{}, fmt.Errorf("wrong length for NodeID HAVE: %d WANT: %d", len(x), 32)
+	}
+	return cadata.IDFromBytes(x), nil
 }
 
 func postNode(ctx context.Context, s cadata.Poster, n Node) (*NodeID, error) {
@@ -74,13 +178,15 @@ func postNode(ctx context.Context, s cadata.Poster, n Node) (*NodeID, error) {
 }
 
 func getNode(ctx context.Context, s cadata.Getter, id NodeID) (*Node, error) {
-	var ent Node
+	var node *Node
 	if err := cadata.GetF(ctx, s, id, func(data []byte) error {
-		return json.Unmarshal(data, &ent)
+		var err error
+		node, err = ParseNode(data)
+		return err
 	}); err != nil {
 		return nil, err
 	}
-	return &ent, nil
+	return node, nil
 }
 
 func getAllNodes(ctx context.Context, s cadata.Getter, ids []NodeID) ([]Node, error) {

@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+option go_package = "github.com/owlmessenger/owl/pkg/feeds/internal/wire";
+
+message Node {
+    uint64 n = 1;
+    repeated bytes previous = 2;
+    bytes author = 3;
+
+    oneof value {
+        Init init = 4;
+        AddPeer add_peer = 5;
+        RemovePeer remove_peer = 6;
+        bytes data = 7;
+    }
+}
+
+message Init {
+   bytes salt = 1;
+   repeated bytes peers = 2; 
+}
+
+message AddPeer {
+    bytes peer = 1;
+}
+
+message RemovePeer {
+    bytes peer = 2;
+}
