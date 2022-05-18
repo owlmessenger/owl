@@ -11,23 +11,12 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func newChatCmd(load loadFunc) *cobra.Command {
+func newChatCmd(sf func() owl.API) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:  "chat",
 		Args: cobra.ExactArgs(2),
 	}
-	dbPath := cmd.Flags().String("db", "", "--db=./db-path.db")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
-		if *dbPath == "" {
-			return errors.New("must specify db path")
-		}
-		s, err := load(*dbPath)
-		if err != nil {
-			return err
-		}
-		if closer, ok := s.(interface{ Close() error }); ok {
-			defer closer.Close()
-		}
 		if len(args) < 2 {
 			return errors.New("must provide persona and channel")
 		}
@@ -39,7 +28,7 @@ func newChatCmd(load loadFunc) *cobra.Command {
 		ctx := context.Background()
 		eg, ctx := errgroup.WithContext(ctx)
 		eg.Go(func() error {
-			return owl.WatchChannel(ctx, s, cid, func(i owl.EventPath, e owl.Event) error {
+			return owl.WatchChannel(ctx, sf(), cid, func(i owl.EventPath, e owl.Event) error {
 				if e.Message == nil {
 					return nil
 				}

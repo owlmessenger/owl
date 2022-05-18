@@ -15,6 +15,10 @@ import (
 	"github.com/owlmessenger/owl/pkg/owlnet"
 )
 
+func OpenDB(dbPath string) (*sqlx.DB, error) {
+	return sqlx.Open("sqlite3", dbPath)
+}
+
 type dbGetter interface {
 	Get(dst interface{}, query string, args ...interface{}) error
 }
@@ -35,7 +39,7 @@ func setupDB(ctx context.Context, db *sqlx.DB) error {
 			data BLOB NOT NULL,
 			PRIMARY KEY(id)
 		);`,
-		`CREATE TABLE stores (
+		`CREATE TABLE IF NOT EXISTS stores (
 			id INTEGER PRIMARY KEY
 		);`,
 		`CREATE TABLE IF NOT EXISTS store_blobs (
@@ -60,7 +64,7 @@ func setupDB(ctx context.Context, db *sqlx.DB) error {
 			UNIQUE(name),
 			PRIMARY KEY(id)
 		);`,
-		`CREATE TABLE persona_keys (
+		`CREATE TABLE IF NOT EXISTS persona_keys (
 			persona_id INTEGER NOT NULL,
 			id BLOB NOT NULL,
 			public_key BLOB,
@@ -69,7 +73,7 @@ func setupDB(ctx context.Context, db *sqlx.DB) error {
 			FOREIGN KEY(persona_id) REFERENCES personas(id),
 			PRIMARY KEY(persona_id, id)
 		);`,
-		`CREATE TABLE persona_contacts (
+		`CREATE TABLE IF NOT EXISTS persona_contacts (
 			persona_id INTEGER NOT NULL,
 			name TEXT NOT NULL,
 			last_peer BLOB NOT NULL,

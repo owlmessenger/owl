@@ -1,6 +1,10 @@
 package owl
 
-import "context"
+import (
+	"context"
+
+	"github.com/inet256/inet256/pkg/inet256"
+)
 
 func WatchChannel(ctx context.Context, s ChannelAPI, cid ChannelID, fn func(i EventPath, e Event) error) error {
 	cinfo, err := s.GetChannel(ctx, cid)
@@ -20,4 +24,8 @@ func WatchChannel(ctx context.Context, s ChannelAPI, cid ChannelID, fn func(i Ev
 			index[len(index)]++
 		}
 	}
+}
+
+func ParseB64PeerID(x []byte) (PeerID, error) {
+	return inet256.ParseAddrB64(x)
 }
