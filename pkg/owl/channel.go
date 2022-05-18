@@ -6,7 +6,6 @@ import (
 	"math"
 
 	"github.com/blobcache/glfs"
-	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/brendoncarroll/go-tai64"
 	"github.com/jmoiron/sqlx"
 
@@ -14,6 +13,8 @@ import (
 	"github.com/owlmessenger/owl/pkg/feeds"
 	"github.com/owlmessenger/owl/pkg/owlnet"
 )
+
+const MaxChannelPeers = 256
 
 var _ ChannelAPI = &Server{}
 
@@ -41,11 +42,20 @@ func (s *Server) CreateChannel(ctx context.Context, cid ChannelID, members []str
 		if err != nil {
 			return err
 		}
-		_, err = s.createChannel(tx, cid, *feedID)
+		chanInt, err := s.createChannel(tx, cid, *feedID)
 		if err != nil {
 			return err
 		}
-		return s.buildChannelIndex(tx, cid)
+		storeID, err := lookupFeedStore(tx, *feedID)
+		if err != nil {
+			return err
+		}
+		s := newTxStore(tx, storeID)
+		node, err := feeds.GetNode(ctx, s, *feedID)
+		if err != nil {
+			return err
+		}
+		return indexChannelNode(tx, chanInt, *feedID, *node)
 	}); err != nil {
 		return err
 	}
@@ -113,17 +123,7 @@ func (s *Server) Send(ctx context.Context, cid ChannelID, mp MessageParams) erro
 	}); err != nil {
 		return err
 	}
-	if err := s.feedController.modifyFeed(ctx, feedID, localID, func(store cadata.Store, x *feeds.Feed) error {
-		if err := x.AppendData(nil, store, localID, msgData); err != nil {
-			return err
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-	return dbutil.DoTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		return s.buildChannelIndex(tx, cid)
-	})
+	return s.feedController.appendData(ctx, feedID, localID, msgData)
 }
 
 func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit int) ([]Event, error) {

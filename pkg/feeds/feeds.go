@@ -29,7 +29,7 @@ func NewEmpty(ctx context.Context, s cadata.Store, peers []PeerID) (*Feed, error
 	node := Node{
 		Init: &init,
 	}
-	id, err := postNode(ctx, s, node)
+	id, err := PostNode(ctx, s, node)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +115,7 @@ func (f *Feed) AddNode(ctx context.Context, s cadata.Store, peer PeerID, node No
 	if err := f.CheckNode(ctx, s, peer, node); err != nil {
 		return err
 	}
-	_, err := postNode(ctx, s, node)
+	_, err := PostNode(ctx, s, node)
 	return err
 }
 
@@ -160,7 +160,7 @@ func (f *Feed) append(ctx context.Context, s cadata.Store, actor PeerID, node No
 	}
 	_, maxN := findMaxN(prevNodes)
 	node.N = maxN + 1
-	id, err := postNode(ctx, s, node)
+	id, err := PostNode(ctx, s, node)
 	if err != nil {
 		return err
 	}
@@ -192,7 +192,7 @@ func (f *Feed) Members() []PeerID {
 // HasPeerVerified returns true if peer has included target in their view of the feed.
 func (f *Feed) HasPeerVerified(ctx context.Context, s cadata.Getter, peer PeerID, target cadata.ID) (bool, error) {
 	ps := f.Peers[peer]
-	targetNode, err := getNode(ctx, s, target)
+	targetNode, err := GetNode(ctx, s, target)
 	if err != nil {
 		return false, err
 	}
@@ -300,7 +300,7 @@ func (f *Feed) SyncHeads(ctx context.Context, dst cadata.Store, src cadata.Gette
 			return err
 		}
 		if !exists {
-			node, err := getNode(ctx, src, id)
+			node, err := GetNode(ctx, src, id)
 			if err != nil {
 				return err
 			}

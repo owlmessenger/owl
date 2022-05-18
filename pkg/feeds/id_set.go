@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/owlmessenger/owl/pkg/slices2"
 	"golang.org/x/exp/slices"
 )
 
@@ -41,7 +42,7 @@ func (s IDSet[T]) Contains(x T) bool {
 }
 
 func Union[T ~[32]byte](a, b IDSet[T]) IDSet[T] {
-	return mergeSlices(a, b, lessThan[T])
+	return slices2.Merge(a, b, lessThan[T])
 }
 
 func (s IDSet[T]) IsEmpty() bool {
@@ -78,38 +79,7 @@ func compare[T ~[32]byte](a, b T) int {
 
 func dedupSorted[T comparable, S ~[]T](x S) S {
 	ret := slices.Clone(x)
-	var deleted int
-	for i := range ret {
-		if i > 0 && ret[i] == ret[i-1] {
-			deleted++
-		} else {
-			ret[i-deleted] = ret[i]
-		}
-	}
-	return ret[:len(ret)-deleted]
-}
-
-func mergeSlices[T any, S ~[]T](a, b S, fn func(a, b T) bool) (out S) {
-	var i, j int
-	for i < len(a) && j < len(b) {
-		switch {
-		case fn(a[i], b[j]):
-			out = append(out, a[i])
-			i++
-		case fn(b[j], a[i]):
-			out = append(out, b[j])
-			j++
-		default:
-			out = append(out, b[j])
-			i++
-			j++
-		}
-	}
-	for ; i < len(a); i++ {
-		out = append(out, a[i])
-	}
-	for ; j < len(b); j++ {
-		out = append(out, b[j])
-	}
-	return out
+	return slices2.DedupSorted(ret, func(a, b T) bool {
+		return a == b
+	})
 }

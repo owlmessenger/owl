@@ -2,8 +2,10 @@ package owl
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/blobcache/glfs"
@@ -89,6 +91,24 @@ func ParseEventPath(data []byte) (EventPath, error) {
 		ret = append(ret, x)
 	}
 	return ret, nil
+}
+
+func (p *EventPath) Scan(x interface{}) error {
+	switch x := x.(type) {
+	case []byte:
+		p2, err := ParseEventPath(x)
+		if err != nil {
+			return err
+		}
+		*p = p2
+		return nil
+	default:
+		return fmt.Errorf("cannot scan from type %T", x)
+	}
+}
+
+func (p EventPath) Value() (driver.Value, error) {
+	return p.Marshal(), nil
 }
 
 // ThreadID is the component of the index which referes to a thread.

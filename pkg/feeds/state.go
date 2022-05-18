@@ -115,6 +115,25 @@ func (s *State) HasPeer(x PeerID) bool {
 	return false
 }
 
+func (s *State) NumPeers() int {
+	var count int
+	for peer := range s.AddedPeers {
+		if s.HasPeer(peer) {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *State) ListPeers() (ret []PeerID) {
+	for peer := range s.AddedPeers {
+		if s.HasPeer(peer) {
+			ret = append(ret, peer)
+		}
+	}
+	return ret
+}
+
 func MergeStates(xs ...*State) *State {
 	switch len(xs) {
 	case 0:

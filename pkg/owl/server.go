@@ -43,9 +43,10 @@ func NewServer(db *sqlx.DB, inet256srv inet256.Service) *Server {
 		nodes: make(map[inet256.ID]*owlnet.Node),
 	}
 	s.feedController = newFeedController(fcParams{
-		log:     log,
-		db:      db,
-		getNode: s.getNode,
+		log:          log,
+		db:           db,
+		getNode:      s.getNode,
+		handleUpdate: s.handleFeed,
 	})
 	return s
 }
@@ -138,4 +139,22 @@ func (s *Server) getNode(ctx context.Context, id PeerID) (*owlnet.Node, error) {
 		return s.readLoop(ctx, node2)
 	})
 	return s.nodes[id], nil
+}
+
+func (s *Server) handleFeed(tx *sqlx.Tx, feed *feeds.Feed, peerID PeerID, store cadata.Store) error {
+	// TODO: check that we have the peerID
+	var chanInt int
+	if err := tx.Get(&chanInt, `SELECT id FROM channels WHERE feed_id = ?`, feed.ID[:]); err != nil {
+		return err
+	}
+	heads := feed.GetHeads(peerID)
+	if len(heads) != 1 {
+		return nil
+	}
+	head := heads[0]
+	node, err := feeds.GetNode(nil, store, head)
+	if err != nil {
+		return err
+	}
+	return indexChannelNode(tx, chanInt, head, *node)
 }

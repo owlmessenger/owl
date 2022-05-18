@@ -169,7 +169,7 @@ func nodeIDFromBytes(x []byte) (NodeID, error) {
 	return cadata.IDFromBytes(x), nil
 }
 
-func postNode(ctx context.Context, s cadata.Poster, n Node) (*NodeID, error) {
+func PostNode(ctx context.Context, s cadata.Poster, n Node) (*NodeID, error) {
 	id, err := s.Post(ctx, n.Marshal())
 	if err != nil {
 		return nil, err
@@ -177,7 +177,7 @@ func postNode(ctx context.Context, s cadata.Poster, n Node) (*NodeID, error) {
 	return &id, nil
 }
 
-func getNode(ctx context.Context, s cadata.Getter, id NodeID) (*Node, error) {
+func GetNode(ctx context.Context, s cadata.Getter, id NodeID) (*Node, error) {
 	var node *Node
 	if err := cadata.GetF(ctx, s, id, func(data []byte) error {
 		var err error
@@ -193,7 +193,7 @@ func getAllNodes(ctx context.Context, s cadata.Getter, ids []NodeID) ([]Node, er
 	nodes := make([]Node, len(ids))
 	for i := range ids {
 		id := ids[i]
-		node, err := getNode(ctx, s, id)
+		node, err := GetNode(ctx, s, id)
 		if err != nil {
 			return nil, err
 		}

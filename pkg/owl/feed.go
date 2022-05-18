@@ -17,15 +17,17 @@ import (
 )
 
 type fcParams struct {
-	db      *sqlx.DB
-	log     *logrus.Logger
-	getNode func(context.Context, PeerID) (*owlnet.Node, error)
+	db           *sqlx.DB
+	log          *logrus.Logger
+	getNode      func(context.Context, PeerID) (*owlnet.Node, error)
+	handleUpdate func(tx *sqlx.Tx, feed *feeds.Feed, localID PeerID, s cadata.Store) error
 }
 
 type feedController struct {
-	db      *sqlx.DB
-	log     *logrus.Logger
-	getNode func(context.Context, PeerID) (*owlnet.Node, error)
+	db        *sqlx.DB
+	log       *logrus.Logger
+	getNode   func(context.Context, PeerID) (*owlnet.Node, error)
+	indexFunc func(tx *sqlx.Tx, feed *feeds.Feed, localID PeerID, s cadata.Store) error
 
 	cf   context.CancelFunc
 	eg   errgroup.Group
@@ -36,9 +38,10 @@ type feedController struct {
 func newFeedController(params fcParams) *feedController {
 	ctx, cf := context.WithCancel(context.Background())
 	fc := &feedController{
-		log:     params.log,
-		db:      params.db,
-		getNode: params.getNode,
+		log:       params.log,
+		db:        params.db,
+		getNode:   params.getNode,
+		indexFunc: params.handleUpdate,
 
 		cf:   cf,
 		subs: make(map[chan struct{}][]cadata.ID),
@@ -53,8 +56,7 @@ func (fc *feedController) run(ctx context.Context) error {
 	return nil
 }
 
-// modifyFeed calls fn to modify the feed, and then handles replicating it to other nodes.
-func (fc *feedController) modifyFeed(ctx context.Context, feedID [32]byte, localID PeerID, fn func(store cadata.Store, x *feeds.Feed) error) error {
+func (fc *feedController) appendData(ctx context.Context, feedID feeds.NodeID, localID PeerID, data []byte) error {
 	var feed *feeds.Feed
 	if err := dbutil.DoTx(ctx, fc.db, func(tx *sqlx.Tx) error {
 		var err error
@@ -67,7 +69,10 @@ func (fc *feedController) modifyFeed(ctx context.Context, feedID [32]byte, local
 			return err
 		}
 		s := newTxStore(tx, storeID)
-		if err := fn(s, feed); err != nil {
+		if err := feed.AppendData(nil, s, localID, data); err != nil {
+			return err
+		}
+		if err := fc.indexFunc(tx, feed, localID, s); err != nil {
 			return err
 		}
 		return saveFeed(tx, feedID, feed)

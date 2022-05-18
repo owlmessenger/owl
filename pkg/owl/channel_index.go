@@ -1,80 +1,83 @@
 package owl
 
 import (
-	"database/sql"
+	"bytes"
 	"errors"
+	"math"
 
 	"github.com/jmoiron/sqlx"
+	"golang.org/x/exp/slices"
 
 	"github.com/owlmessenger/owl/pkg/feeds"
+	"github.com/owlmessenger/owl/pkg/slices2"
 )
 
-// func buildChannelIndexTx(tx *sqlx.Tx, chanInt int, feedID owlnet.FeedID) error {
-// 	return nil
-// }
-
-// TODO: don't build the whole index every time
-func (s *Server) buildChannelIndex(tx *sqlx.Tx, cid ChannelID) error {
-	localID, err := s.getAuthor(tx, cid)
-	if err != nil {
-		return err
-	}
-	feedID, storeID, err := s.lookupChannelFeed(tx, cid)
-	if err != nil {
-		return err
-	}
-	feed, err := loadFeed(tx, feedID)
-	if err != nil {
-		return err
-	}
-	chanInt, err := s.lookupChannel(tx, cid)
-	if err != nil {
-		return err
-	}
-	heads := feed.GetHeads(localID)
-	store := newTxStore(tx, storeID)
-	todo := map[uint64][]feeds.Pair{}
-	if err := feeds.ForEachDescGroup(nil, store, heads, func(n uint64, pairs []feeds.Pair) error {
-		todo[n] = append([]feeds.Pair{}, pairs...)
-		return nil
-	}); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM channel_events WHERE channel_id = ?`, chanInt); err != nil {
-		return err
-	}
-	var n uint64
-	var index uint64
-	for len(todo) > 0 {
-		for _, pair := range todo[n] {
-			mi := EventPath{index}
-			if err := s.putChannelMsg(tx, chanInt, mi, pair.ID); err != nil {
-				return err
-			}
-			index++
+// indexChannelNode indexes a feeds.Node into the channel_events table
+func indexChannelNode(tx *sqlx.Tx, chanInt int, id feeds.NodeID, node feeds.Node) error {
+	ep := EventPath{}
+	if node.Data != nil {
+		msg, err := parseMessage(node.Data)
+		if err != nil {
+			return err
 		}
-		delete(todo, n)
-		n++
+		if msg.Parent != nil {
+			// TODO: support nested messages
+			// append parent N
+			panic(msg.Parent)
+		}
 	}
-	return nil
+	i := (node.N << 8)
+	ep = append(ep, i)
+	return putChannelEvent(tx, chanInt, ep, id)
 }
 
-func (s *Server) putChannelMsg(tx *sqlx.Tx, intID int, p EventPath, id feeds.NodeID) error {
-	_, err := tx.Exec(`DELETE FROM channel_events WHERE channel_id = ? AND path = ?`, intID, p.Marshal())
+// putChannelEvent indexes a channel event and reindexes if necessary
+func putChannelEvent(tx *sqlx.Tx, intID int, p EventPath, id feeds.NodeID) error {
+	pEnd := slices.Clone(p)
+	pEnd[len(pEnd)-1] = math.MaxUint64
+	type Row struct {
+		Path EventPath `db:"path"`
+		ID   []byte    `db:"blob_id"`
+	}
+	// select
+	var xs []Row
+	if err := tx.Select(&xs, `SELECT path, blob_id FROM channel_events
+		WHERE channel_id = ? AND path >= ?
+	`, intID, p, pEnd); err != nil {
+		return err
+	}
+	// delete
+	_, err := tx.Exec(`DELETE FROM channel_events
+		WHERE channel_id = ? AND path >= ? AND path < ?
+	`, intID, p, pEnd)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(`INSERT INTO channel_events (channel_id, path, blob_id) VALUES (?, ?, ?)`, intID, p.Marshal(), id[:])
+	// add
+	xs = append(xs, Row{Path: p, ID: id[:]})
+	if len(xs) > MaxChannelPeers {
+		return errors.New("feed wider than number of peers")
+	}
+	// sort
+	slices.SortFunc(xs, func(a, b Row) bool {
+		return bytes.Compare(a.ID[:], b.ID[:]) < 0
+	})
+	// dedup
+	xs = slices2.DedupSorted(xs, func(a, b Row) bool {
+		return bytes.Equal(a.ID, b.ID)
+	})
+	// assign paths
+	for i, x := range xs {
+		l := len(x.Path)
+		x.Path[l-1] |= uint64(i)
+	}
+	// insert
+	for _, x := range xs {
+		if _, err = tx.Exec(`INSERT INTO channel_events (channel_id, path, blob_id)
+			VALUES (?, ?, ?)
+		`, intID, x.Path, x.ID[:]); err != nil {
+			return err
+		}
+	}
 	return err
-}
-
-func (s *Server) isBlobIndexed(tx *sqlx.Tx, intID int, id feeds.NodeID) (bool, error) {
-	var x int
-	if err := tx.Get(&x, `SELECT 1 FROM channel_events WHERE channel_id = ? AND blob_id = ?`, intID, id); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			err = nil
-		}
-		return false, err
-	}
-	return true, nil
 }
