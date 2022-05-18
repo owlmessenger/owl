@@ -72,7 +72,7 @@ func setupDB(ctx context.Context, db *sqlx.DB) error {
 		`CREATE TABLE persona_contacts (
 			persona_id INTEGER NOT NULL,
 			name TEXT NOT NULL,
-			intro_peer BLOB NOT NULL,
+			last_peer BLOB NOT NULL,
 			feed_id BLOB,
 			FOREIGN KEY (persona_id) REFERENCES personas(id),
 			PRIMARY KEY (persona_id, name)

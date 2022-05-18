@@ -56,7 +56,7 @@ func (fc *feedController) run(ctx context.Context) error {
 	return nil
 }
 
-func (fc *feedController) appendData(ctx context.Context, feedID feeds.NodeID, localID PeerID, data []byte) error {
+func (fc *feedController) AppendData(ctx context.Context, feedID feeds.NodeID, localID PeerID, data []byte) error {
 	var feed *feeds.Feed
 	if err := dbutil.DoTx(ctx, fc.db, func(tx *sqlx.Tx) error {
 		var err error
@@ -97,12 +97,27 @@ func (fc *feedController) appendData(ctx context.Context, feedID feeds.NodeID, l
 	return nil
 }
 
-// func (fc *feedController) viewFeedTx(tx *sqlx.Tx, feedID [32]byte, as PeerID) ([]feeds.NodeID, cadata.Store, error) {
-// 	return dbutil.Do1Tx(ctx, fc.db, func(tx *sqlx.Tx) (*feeds.Feed, error) {
-// 		return loadFeed(tx, feedID)
-// 	})
-// 	store := newStore(fc.db, storeID)
-// }
+func (fc *feedController) Touch(ctx context.Context, feedID [32]byte, as PeerID) error {
+	return dbutil.DoTx(ctx, fc.db, func(tx *sqlx.Tx) error {
+		return fc.TouchTx(tx, feedID, as)
+	})
+}
+
+func (fc *feedController) TouchTx(tx *sqlx.Tx, feedID [32]byte, as PeerID) error {
+	feed, err := loadFeed(tx, feedID)
+	if err != nil {
+		return err
+	}
+	storeID, err := lookupFeedStore(tx, feedID)
+	if err != nil {
+		return err
+	}
+	s := newTxStore(tx, storeID)
+	if err := fc.indexFunc(tx, feed, as, s); err != nil {
+		return err
+	}
+	return nil
+}
 
 func (fc *feedController) handlePush(ctx context.Context, src, dst owlnet.PeerID, feedID owlnet.FeedID, heads []feeds.NodeID) error {
 	return dbutil.DoTx(ctx, fc.db, func(tx *sqlx.Tx) error {

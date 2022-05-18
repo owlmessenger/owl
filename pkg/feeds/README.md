@@ -15,8 +15,8 @@ When a peer appends to the feed, they reduce the number of Heads to 1.
 Nodes and the CA store that holds them must adhear to several invariants.
 
 A node is considered valid if it:
-- Only references valid nodes
 - References nodes which exist
+- Only references valid nodes
 - Has a correct N, relative to it's ancestors
 - If N is 1, then there must be 1 previous node and it's ID must match the feed ID.
 - Does not contain invalid operations, such as adding or removing incorrect peers, or writing data without permission.

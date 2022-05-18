@@ -2,6 +2,7 @@ package feeds
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 
@@ -169,7 +170,7 @@ func nodeIDFromBytes(x []byte) (NodeID, error) {
 	return cadata.IDFromBytes(x), nil
 }
 
-func PostNode(ctx context.Context, s cadata.Poster, n Node) (*NodeID, error) {
+func postNode(ctx context.Context, s cadata.Poster, n Node) (*NodeID, error) {
 	id, err := s.Post(ctx, n.Marshal())
 	if err != nil {
 		return nil, err
@@ -177,6 +178,7 @@ func PostNode(ctx context.Context, s cadata.Poster, n Node) (*NodeID, error) {
 	return &id, nil
 }
 
+// GetNode retreives the node with id from s.
 func GetNode(ctx context.Context, s cadata.Getter, id NodeID) (*Node, error) {
 	var node *Node
 	if err := cadata.GetF(ctx, s, id, func(data []byte) error {
@@ -282,4 +284,43 @@ func findMaxN(nodes []Node) (int, uint64) {
 		}
 	}
 	return index, max
+}
+
+// NearestUnity finds a point in the history of ids where a value of N has a single node.
+func NearestUnity(ctx context.Context, s cadata.Store, ids IDSet[NodeID]) (*NodeID, error) {
+	stopIter := errors.New("stop iteration")
+	var ret *NodeID
+	if err := ForEachDescGroup(ctx, s, ids, func(_ uint64, pairs []Pair) error {
+		if len(pairs) == 1 {
+			ret = &pairs[0].ID
+			return stopIter
+		}
+		return nil
+	}); err != nil && !errors.Is(err, stopIter) {
+		return nil, err
+	}
+	return ret, nil
+}
+
+func reachableFrom(ctx context.Context, s cadata.Getter, srcs IDSet[NodeID], target cadata.ID, targetN uint64) (bool, error) {
+	if srcs.Contains(target) {
+		return true, nil
+	}
+	nodes, err := getAllNodes(ctx, s, srcs)
+	if err != nil {
+		return false, err
+	}
+	for _, node := range nodes {
+		if node.N <= targetN {
+			continue
+		}
+		yes, err := reachableFrom(ctx, s, node.Previous, target, targetN)
+		if err != nil {
+			return false, err
+		}
+		if yes {
+			return true, nil
+		}
+	}
+	return false, nil
 }

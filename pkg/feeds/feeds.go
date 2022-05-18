@@ -29,7 +29,7 @@ func NewEmpty(ctx context.Context, s cadata.Store, peers []PeerID) (*Feed, error
 	node := Node{
 		Init: &init,
 	}
-	id, err := PostNode(ctx, s, node)
+	id, err := postNode(ctx, s, node)
 	if err != nil {
 		return nil, err
 	}
@@ -79,6 +79,7 @@ func (f *Feed) GetID() NodeID {
 
 // SetHeads sets the heads for peer to heads
 // SetHeads will fail if the structure transitively reachable by heads contains dangling references.
+// Use AddNode to ensure that the nodes exist.
 func (f *Feed) SetHeads(ctx context.Context, s cadata.Store, peer PeerID, heads []NodeID) error {
 	if _, exists := f.Peers[peer]; !exists {
 		return ErrPeerNotInFeed{Peer: peer}
@@ -88,20 +89,21 @@ func (f *Feed) SetHeads(ctx context.Context, s cadata.Store, peer PeerID, heads 
 	if err != nil {
 		return err
 	}
-	senders := map[PeerID]struct{}{}
-	for _, node := range nodes {
-		if _, exists := senders[node.Author]; exists {
-			return errors.New("a valid set of heads can only contain one head from each sender")
-		}
-		senders[node.Author] = struct{}{}
+	if err := checkSenders(nodes); err != nil {
+		return err
 	}
-	f.Peers[peer].setHeads(heads)
+	ps := f.Peers[peer]
+	ps.setHeads(heads)
 	return nil
 }
 
 // GetHeads returns the source nodes for peer
 func (f *Feed) GetHeads(peer PeerID) []NodeID {
 	return f.Peers[peer].Heads
+}
+
+func (f *Feed) GetState(peer PeerID) State {
+	return f.Peers[peer].State
 }
 
 func (f *Feed) HasPeer(accordingTo, target PeerID) bool {
@@ -115,12 +117,13 @@ func (f *Feed) AddNode(ctx context.Context, s cadata.Store, peer PeerID, node No
 	if err := f.CheckNode(ctx, s, peer, node); err != nil {
 		return err
 	}
-	_, err := PostNode(ctx, s, node)
+	_, err := postNode(ctx, s, node)
 	return err
 }
 
 // AddPeer adds peers to the feed as actor
 func (f *Feed) AddPeer(ctx context.Context, s cadata.Store, actor PeerID, peer PeerID, perms uint8) error {
+	// TODO: check when last unity was.  Prevent adding a peer when it could exceed the maximum limit.
 	return f.append(ctx, s, actor, Node{
 		AddPeer: &AddPeer{
 			Peer: peer,
@@ -151,6 +154,11 @@ func (f *Feed) AdoptHeads(ctx context.Context, s cadata.Store, actor, target Pee
 	panic("")
 }
 
+// Trust causes actor to accept target's heads as true.
+func (f *Feed) Trust(ctx context.Context, s cadata.Store, actor, target PeerID) error {
+	panic("")
+}
+
 func (f *Feed) append(ctx context.Context, s cadata.Store, actor PeerID, node Node) error {
 	node.Author = actor
 	node.Previous = f.Peers[actor].Heads
@@ -160,7 +168,10 @@ func (f *Feed) append(ctx context.Context, s cadata.Store, actor PeerID, node No
 	}
 	_, maxN := findMaxN(prevNodes)
 	node.N = maxN + 1
-	id, err := PostNode(ctx, s, node)
+	if err := f.CheckNode(ctx, s, actor, node); err != nil {
+		return err
+	}
+	id, err := postNode(ctx, s, node)
 	if err != nil {
 		return err
 	}
@@ -199,29 +210,6 @@ func (f *Feed) HasPeerVerified(ctx context.Context, s cadata.Getter, peer PeerID
 	return reachableFrom(ctx, s, ps.Heads, target, targetNode.N)
 }
 
-func reachableFrom(ctx context.Context, s cadata.Getter, srcs IDSet[NodeID], target cadata.ID, targetN uint64) (bool, error) {
-	if srcs.Contains(target) {
-		return true, nil
-	}
-	nodes, err := getAllNodes(ctx, s, srcs)
-	if err != nil {
-		return false, err
-	}
-	for _, node := range nodes {
-		if node.N <= targetN {
-			continue
-		}
-		yes, err := reachableFrom(ctx, s, node.Previous, target, targetN)
-		if err != nil {
-			return false, err
-		}
-		if yes {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 // CheckNode determines if the entry can be applied to the feed in its current state.
 func (f *Feed) CheckNode(ctx context.Context, s cadata.Getter, from PeerID, node Node) error {
 	_, exists := f.Peers[from]
@@ -244,6 +232,9 @@ func (f *Feed) CheckNode(ctx context.Context, s cadata.Getter, from PeerID, node
 	}
 	if node.N != expectedN {
 		return ErrBadN{Have: node.N, Want: expectedN, Node: node}
+	}
+	if err := checkSenders(previous); err != nil {
+		return err
 	}
 	// Try evolving the state and check that it is valid.
 	if _, err := f.Peers[from].State.Evolve(node); err != nil {
@@ -311,6 +302,18 @@ func (f *Feed) SyncHeads(ctx context.Context, dst cadata.Store, src cadata.Gette
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+// checkSenders ensures that each Node in previous has a unique sender.
+func checkSenders(previous []Node) error {
+	senders := map[PeerID]struct{}{}
+	for _, node := range previous {
+		if _, exists := senders[node.Author]; exists {
+			return errors.New("a valid set of heads can only contain one head from each sender")
+		}
+		senders[node.Author] = struct{}{}
 	}
 	return nil
 }

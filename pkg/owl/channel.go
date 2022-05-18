@@ -42,28 +42,14 @@ func (s *Server) CreateChannel(ctx context.Context, cid ChannelID, members []str
 		if err != nil {
 			return err
 		}
-		chanInt, err := s.createChannel(tx, cid, *feedID)
-		if err != nil {
+		if _, err := s.createChannel(tx, cid, *feedID); err != nil {
 			return err
 		}
-		storeID, err := lookupFeedStore(tx, *feedID)
-		if err != nil {
-			return err
-		}
-		s := newTxStore(tx, storeID)
-		node, err := feeds.GetNode(ctx, s, *feedID)
-		if err != nil {
-			return err
-		}
-		return indexChannelNode(tx, chanInt, *feedID, *node)
+		return s.feedController.TouchTx(tx, *feedID, localID)
 	}); err != nil {
 		return err
 	}
-	return nil
-	// TODO: no-op to trigger a sync
-	// return s.feedController.modifyFeed(ctx, *feedID, localID, func(_ cadata.Store, x *feeds.Feed) (*feeds.Feed, error) {
-	// 	return x, nil
-	// })
+	return s.feedController.Touch(ctx, *feedID, localID)
 }
 
 func (s *Server) DeleteChannel(ctx context.Context, cid ChannelID) error {
@@ -123,7 +109,7 @@ func (s *Server) Send(ctx context.Context, cid ChannelID, mp MessageParams) erro
 	}); err != nil {
 		return err
 	}
-	return s.feedController.appendData(ctx, feedID, localID, msgData)
+	return s.feedController.AppendData(ctx, feedID, localID, msgData)
 }
 
 func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit int) ([]Event, error) {

@@ -166,8 +166,12 @@ type MessageParams struct {
 	Attachments map[string]glfs.Ref
 }
 
-func Plaintext(x string) MessageParams {
-	return MessageParams{}
+// Text creates parameters for a simple text message
+func PlainText(x string) MessageParams {
+	return MessageParams{
+		Type: "text/plain",
+		Body: []byte(x),
+	}
 }
 
 type ChannelAPI interface {

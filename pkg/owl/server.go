@@ -2,6 +2,9 @@ package owl
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/brendoncarroll/go-p2p/p/mbapp"
@@ -144,17 +147,28 @@ func (s *Server) getNode(ctx context.Context, id PeerID) (*owlnet.Node, error) {
 func (s *Server) handleFeed(tx *sqlx.Tx, feed *feeds.Feed, peerID PeerID, store cadata.Store) error {
 	// TODO: check that we have the peerID
 	var chanInt int
-	if err := tx.Get(&chanInt, `SELECT id FROM channels WHERE feed_id = ?`, feed.ID[:]); err != nil {
-		return err
+	if err := tx.Get(&chanInt, `SELECT id FROM channels WHERE feed_id = ?`, feed.ID[:]); !errors.Is(err, sql.ErrNoRows) {
+		if err != nil {
+			return err
+		}
+		heads := feed.GetHeads(peerID)
+		if len(heads) != 1 {
+			return nil
+		}
+		head := heads[0]
+		node, err := feeds.GetNode(nil, store, head)
+		if err != nil {
+			return err
+		}
+		return indexChannelNode(tx, chanInt, head, *node)
 	}
-	heads := feed.GetHeads(peerID)
-	if len(heads) != 1 {
+	var x int
+	if err := tx.Get(&x, `SELECT 1 FROM persona_contacts WHERE feed_id = ?`, feed.ID[:]); !errors.Is(err, sql.ErrNoRows) {
+		if err != nil {
+			return err
+		}
+		// TODO: do something with the feed, update persona_contacts.last_peer to peerID
 		return nil
 	}
-	head := heads[0]
-	node, err := feeds.GetNode(nil, store, head)
-	if err != nil {
-		return err
-	}
-	return indexChannelNode(tx, chanInt, head, *node)
+	return fmt.Errorf("unknown feed %v", feed.ID)
 }
