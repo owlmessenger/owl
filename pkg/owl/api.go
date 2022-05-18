@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blobcache/glfs"
@@ -126,6 +128,17 @@ func (mi EventPath) Marshal() []byte {
 	return out
 }
 
+func (mi EventPath) String() string {
+	sb := strings.Builder{}
+	for i, n := range mi {
+		if i > 0 {
+			sb.WriteString(".")
+		}
+		sb.WriteString(strconv.FormatUint(n, 10))
+	}
+	return sb.String()
+}
+
 // Event is an element in a Channel.
 // Events each have a unique EventPath.
 type Event struct {
@@ -174,6 +187,13 @@ func PlainText(x string) MessageParams {
 	}
 }
 
+// Pair is an Event and the Path to it
+// Pairs are returned from Read
+type Pair struct {
+	Path  EventPath
+	Event *Event
+}
+
 type ChannelAPI interface {
 	// CreateChannel creates a new channel with name
 	CreateChannel(ctx context.Context, cid ChannelID, members []string) error
@@ -186,7 +206,7 @@ type ChannelAPI interface {
 	// Send, sends a message to a channel.
 	Send(ctx context.Context, cid ChannelID, mp MessageParams) error
 	// Read reads events from a channel
-	Read(ctx context.Context, cid ChannelID, begin EventPath, limit int) ([]Event, error)
+	Read(ctx context.Context, cid ChannelID, begin EventPath, limit int) ([]Pair, error)
 	// Wait blocks until the latest message in a channel changes is different from since
 	Wait(ctx context.Context, cid ChannelID, since EventPath) (EventPath, error)
 }

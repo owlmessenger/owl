@@ -1,0 +1,91 @@
+package owlcmd
+
+import (
+	"bufio"
+	"errors"
+	"fmt"
+
+	"github.com/owlmessenger/owl/pkg/owl"
+	"github.com/spf13/cobra"
+)
+
+func newChannelCmd(sf func() owl.ChannelAPI) *cobra.Command {
+	c := &cobra.Command{
+		Use: "channel",
+	}
+	for _, c2 := range []*cobra.Command{
+		newChannelCreateCmd(sf),
+		newChannelListCmd(sf),
+		newChannelReadCmd(sf),
+	} {
+		c.AddCommand(c2)
+	}
+	return c
+}
+
+func newChannelCreateCmd(sf func() owl.ChannelAPI) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:  "create <channel-name>",
+		Args: cobra.MinimumNArgs(1),
+	}
+	persona := personaFlag(cmd)
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		if *persona == "" {
+			return errors.New("must provide persona")
+		}
+		name := args[0]
+		contacts := args[1:]
+		return sf().CreateChannel(ctx, owl.ChannelID{Persona: *persona, Name: name}, contacts)
+	}
+	return cmd
+}
+
+func newChannelListCmd(sf func() owl.ChannelAPI) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "lists channels for the persona",
+	}
+	persona := personaFlag(cmd)
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		if *persona == "" {
+			return errors.New("must provide persona")
+		}
+		w := bufio.NewWriter(cmd.OutOrStdout())
+		if err := owl.ForEachChannel(ctx, sf(), *persona, func(name string) error {
+			_, err := fmt.Fprintf(w, "%s\n", name)
+			return err
+		}); err != nil {
+			return err
+		}
+		return w.Flush()
+	}
+	return cmd
+}
+
+func newChannelReadCmd(sf func() owl.ChannelAPI) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "read",
+		Short: "reads message from the channel",
+		Args:  cobra.MaximumNArgs(1),
+	}
+	persona := personaFlag(cmd)
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		if *persona == "" {
+			return errors.New("must provide persona")
+		}
+		name := args[0]
+		cid := owl.ChannelID{Persona: *persona, Name: name}
+		w := bufio.NewWriter(cmd.OutOrStdout())
+		if err := owl.ForEachEvent(ctx, sf(), cid, func(p owl.Pair) error {
+			return printEvent(w, p.Path, p.Event)
+		}); err != nil {
+			return err
+		}
+		return w.Flush()
+	}
+	return cmd
+}
+
+func personaFlag(cmd *cobra.Command) *string {
+	return cmd.Flags().String("persona", "", "--persona <name>")
+}

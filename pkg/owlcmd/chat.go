@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"time"
 
 	"github.com/owlmessenger/owl/pkg/owl"
 	"github.com/spf13/cobra"
@@ -14,37 +16,55 @@ import (
 func newChatCmd(sf func() owl.API) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:  "chat",
-		Args: cobra.ExactArgs(2),
+		Args: cobra.ExactArgs(1),
 	}
+	persona := personaFlag(cmd)
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
-		if len(args) < 2 {
-			return errors.New("must provide persona and channel")
+		if *persona == "" {
+			return errors.New("must provide persona")
 		}
-		persona, channel := args[0], args[1]
-		cid := owl.ChannelID{Persona: persona, Name: channel}
+		channel := args[0]
+		cid := owl.ChannelID{Persona: *persona, Name: channel}
 		out := cmd.OutOrStdout()
 		in := cmd.InOrStdin()
+		s := sf()
 
 		ctx := context.Background()
 		eg, ctx := errgroup.WithContext(ctx)
 		eg.Go(func() error {
-			return owl.WatchChannel(ctx, sf(), cid, func(i owl.EventPath, e owl.Event) error {
-				if e.Message == nil {
-					return nil
-				}
-				m := e.Message
-				_, err := fmt.Fprintf(out, "%v %v %x %s:\t%s\n", i, m.SentAt, m.FromPeer[:8], m.FromContact, string(m.Body))
-				return err
-			})
+			log.Println(cid, out)
+			return nil
+			// return owl.WatchChannel(ctx, sf(), cid, func(i owl.EventPath, e owl.Event) error {
+			// 	return
+			// })
 		})
 		eg.Go(func() error {
 			scn := bufio.NewScanner(in)
 			for scn.Scan() {
-				scn.Bytes()
+				s.Send(ctx, cid, owl.PlainText(scn.Text()))
 			}
 			return scn.Err()
 		})
 		return eg.Wait()
 	}
 	return cmd
+}
+
+func printEvent(w *bufio.Writer, p owl.EventPath, e *owl.Event) error {
+	var err error
+	switch {
+	case e.ChannelCreated != nil:
+		_, err = fmt.Fprintf(w, "=== CHANNEL ORIGIN ===\n")
+	case e.PeerAdded != nil:
+		pa := e.PeerAdded
+		_, err = fmt.Fprintf(w, " PEER %v ADDED BY %v\n", pa.Peer, pa.AddedBy)
+	case e.Message != nil:
+		m := e.Message
+		sentAt := m.SentAt.Truncate(time.Second).Local().Format(time.Stamp)
+		_, err = fmt.Fprintf(w, "%8v %8v %x %s: %s\n", p, sentAt, m.FromPeer[:4], m.FromContact, string(m.Body))
+	default:
+		log.Println("empty event")
+		return nil
+	}
+	return err
 }

@@ -48,6 +48,7 @@ func NewRootCmd() *cobra.Command {
 	for _, c := range []*cobra.Command{
 		newChatCmd(func() owl.API { return s }),
 		newPersonaCmd(func() owl.PersonaAPI { return s }),
+		newChannelCmd(func() owl.ChannelAPI { return s }),
 	} {
 		cmd.AddCommand(c)
 	}

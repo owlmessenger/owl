@@ -7,6 +7,7 @@ import (
 	"github.com/inet256/inet256/client/go_client/inet256client"
 	"github.com/inet256/inet256/pkg/inet256"
 	"github.com/jmoiron/sqlx"
+	"github.com/owlmessenger/owl/pkg/slices2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -88,9 +89,9 @@ func sendMessage(t testing.TB, x API, persona, chanName string, p MessageParams)
 
 func readEvents(t testing.TB, x API, persona, chanName string) []Event {
 	ctx := context.Background()
-	evs, err := x.Read(ctx, ChannelID{Persona: persona, Name: chanName}, EventPath{}, 0)
+	pairs, err := x.Read(ctx, ChannelID{Persona: persona, Name: chanName}, EventPath{}, 0)
 	require.NoError(t, err)
-	return evs
+	return slices2.Map[Pair, Event, []Pair, []Event](pairs, func(p Pair) Event { return *p.Event })
 }
 
 func createPersona(t testing.TB, x API, name string, ids []inet256.ID) {

@@ -112,15 +112,19 @@ func (s *Server) Send(ctx context.Context, cid ChannelID, mp MessageParams) erro
 	return s.feedController.AppendData(ctx, feedID, localID, msgData)
 }
 
-func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit int) ([]Event, error) {
+func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit int) ([]Pair, error) {
 	if err := s.Init(ctx); err != nil {
 		return nil, err
 	}
 	if limit <= 0 {
 		limit = 1024
 	}
-	var datas [][]byte
-	if err := s.db.SelectContext(ctx, &datas, `SELECT blobs.data FROM personas
+	type Row struct {
+		Path EventPath `db:"path"`
+		Data []byte    `db:"data"`
+	}
+	var rows []Row
+	if err := s.db.SelectContext(ctx, &rows, `SELECT channel_events.path, blobs.data FROM personas
 		JOIN channels on personas.id = channels.persona_id
 		JOIN channel_events ON channels.id = channel_events.channel_id
 		JOIN blobs ON channel_events.blob_id = blobs.id
@@ -129,9 +133,9 @@ func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit
 	`, cid.Persona, cid.Name, begin.Marshal(), limit); err != nil {
 		return nil, err
 	}
-	events := make([]Event, len(datas))
-	for i, data := range datas {
-		node, err := feeds.ParseNode(data)
+	pairs := make([]Pair, len(rows))
+	for i, row := range rows {
+		node, err := feeds.ParseNode(row.Data)
 		if err != nil {
 			return nil, err
 		}
@@ -139,9 +143,9 @@ func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit
 		if err != nil {
 			return nil, err
 		}
-		events[i] = *ev
+		pairs[i] = Pair{Path: row.Path, Event: ev}
 	}
-	return events, nil
+	return pairs, nil
 }
 
 func (s *Server) GetChannel(ctx context.Context, cid ChannelID) (*ChannelInfo, error) {
