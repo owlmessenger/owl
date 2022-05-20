@@ -64,9 +64,9 @@ func newChannelListCmd(sf func() owl.ChannelAPI) *cobra.Command {
 
 func newChannelReadCmd(sf func() owl.ChannelAPI) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "read",
+		Use:   "read <channel-name>",
 		Short: "reads message from the channel",
-		Args:  cobra.MaximumNArgs(1),
+		Args:  cobra.ExactArgs(1),
 	}
 	persona := personaFlag(cmd)
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {

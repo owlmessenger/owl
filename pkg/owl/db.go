@@ -12,6 +12,7 @@ import (
 	"github.com/inet256/inet256/pkg/inet256"
 	"github.com/jmoiron/sqlx"
 
+	"github.com/owlmessenger/owl/pkg/migrations"
 	"github.com/owlmessenger/owl/pkg/owlnet"
 )
 
@@ -27,86 +28,77 @@ type dbSelector interface {
 	Select(dst interface{}, query string, args ...interface{}) error
 }
 
+var desiredState = migrations.InitialState().
+	ApplyStmt(`CREATE TABLE blobs (
+		id BLOB,
+		data BLOB NOT NULL,
+		PRIMARY KEY(id)
+	);`).
+	ApplyStmt(`CREATE TABLE stores (
+		id INTEGER PRIMARY KEY
+	);`).
+	ApplyStmt(`CREATE TABLE store_blobs (
+		store_id INTEGER,
+		blob_id BLOB,
+		FOREIGN KEY(store_id) REFERENCES store_id,
+		FOREIGN KEY(blob_id) REFERENCES blobs(id),
+		PRIMARY KEY(store_id, blob_id)
+	);`).
+	ApplyStmt(`CREATE TABLE feeds (
+		id BLOB,
+		store_id INTEGER NOT NULL,
+		state BLOB,
+		UNIQUE(store_id),
+		FOREIGN KEY(store_id) REFERENCES stores(id),
+		PRIMARY KEY(id)
+	);`).
+	ApplyStmt(`CREATE TABLE personas (
+		id INTEGER NOT NULL,
+		name TEXT NOT NULL,
+		feed_id BLOB,
+		UNIQUE(name),
+		PRIMARY KEY(id)
+	);`).
+	ApplyStmt(`CREATE TABLE  persona_keys (
+		persona_id INTEGER NOT NULL,
+		id BLOB NOT NULL,
+		public_key BLOB,
+		private_key BLOB,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY(persona_id) REFERENCES personas(id),
+		PRIMARY KEY(persona_id, id)
+	);`).
+	ApplyStmt(`CREATE TABLE IF NOT EXISTS persona_contacts (
+		persona_id INTEGER NOT NULL,
+		name TEXT NOT NULL,
+		last_peer BLOB NOT NULL,
+		feed_id BLOB,
+		FOREIGN KEY (persona_id) REFERENCES personas(id),
+		PRIMARY KEY (persona_id, name)
+	);`).
+	ApplyStmt(`CREATE TABLE IF NOT EXISTS channels (
+		id INTEGER NOT NULL,
+		persona_id INTEGER NOT NULL,
+		name TEXT NOT NULL,
+		feed_id BLOB NOT NULL,
+		oob_store_id INTEGER NOT NULL,
+		FOREIGN KEY(persona_id) REFERENCES personas(id),
+		FOREIGN KEY(feed_id) REFERENCES feeds(id),
+		FOREIGN KEY(oob_store_id) REFERENCES stores(id),
+		PRIMARY KEY(id),
+		UNIQUE(persona_id, name)
+	);`).
+	ApplyStmt(`CREATE TABLE IF NOT EXISTS channel_events (
+		channel_id INTEGER,
+		path BLOB NOT NULL,
+		blob_id BLOB NOT NULL,
+		FOREIGN KEY(channel_id) REFERENCES channels(id),
+		FOREIGN KEY(blob_id) REFERENCES blobs(id),
+		PRIMARY KEY(channel_id, path)
+	);`)
+
 func setupDB(ctx context.Context, db *sqlx.DB) error {
-	tx, err := db.BeginTxx(ctx, &sql.TxOptions{})
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	for _, q := range []string{
-		`CREATE TABLE IF NOT EXISTS blobs (
-			id BLOB,
-			data BLOB NOT NULL,
-			PRIMARY KEY(id)
-		);`,
-		`CREATE TABLE IF NOT EXISTS stores (
-			id INTEGER PRIMARY KEY
-		);`,
-		`CREATE TABLE IF NOT EXISTS store_blobs (
-			store_id INTEGER,
-			blob_id BLOB,
-			FOREIGN KEY(store_id) REFERENCES store_id,
-			FOREIGN KEY(blob_id) REFERENCES blobs(id),
-			PRIMARY KEY(store_id, blob_id)
-		);`,
-		`CREATE TABLE IF NOT EXISTS feeds (
-			id BLOB,
-			store_id INTEGER NOT NULL,
-			state BLOB,
-			UNIQUE(store_id),
-			FOREIGN KEY(store_id) REFERENCES stores(id),
-			PRIMARY KEY(id)
-		);`,
-		`CREATE TABLE IF NOT EXISTS personas (
-			id INTEGER NOT NULL,
-			name TEXT NOT NULL,
-			feed_id BLOB,
-			UNIQUE(name),
-			PRIMARY KEY(id)
-		);`,
-		`CREATE TABLE IF NOT EXISTS persona_keys (
-			persona_id INTEGER NOT NULL,
-			id BLOB NOT NULL,
-			public_key BLOB,
-			private_key BLOB,
-			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY(persona_id) REFERENCES personas(id),
-			PRIMARY KEY(persona_id, id)
-		);`,
-		`CREATE TABLE IF NOT EXISTS persona_contacts (
-			persona_id INTEGER NOT NULL,
-			name TEXT NOT NULL,
-			last_peer BLOB NOT NULL,
-			feed_id BLOB,
-			FOREIGN KEY (persona_id) REFERENCES personas(id),
-			PRIMARY KEY (persona_id, name)
-		);`,
-		`CREATE TABLE IF NOT EXISTS channels (
-			id INTEGER NOT NULL,
-			persona_id INTEGER NOT NULL,
-			name TEXT NOT NULL,
-			feed_id BLOB NOT NULL,
-			oob_store_id INTEGER NOT NULL,
-			FOREIGN KEY(persona_id) REFERENCES personas(id),
-			FOREIGN KEY(feed_id) REFERENCES feeds(id),
-			FOREIGN KEY(oob_store_id) REFERENCES stores(id),
-			PRIMARY KEY(id),
-			UNIQUE(persona_id, name)
-		);`,
-		`CREATE TABLE IF NOT EXISTS channel_events (
-			channel_id INTEGER,
-			path BLOB NOT NULL,
-			blob_id BLOB NOT NULL,
-			FOREIGN KEY(channel_id) REFERENCES channels(id),
-			FOREIGN KEY(blob_id) REFERENCES blobs(id),
-			PRIMARY KEY(channel_id, path)
-		);`,
-	} {
-		if _, err := tx.Exec(q); err != nil {
-			return fmt.Errorf("%v while running statement %v", err, q)
-		}
-	}
-	return tx.Commit()
+	return migrations.Migrate(ctx, db, desiredState)
 }
 
 func (s *Server) addKey(tx *sqlx.Tx, personaID int, id inet256.ID, pubKey inet256.PublicKey, privKey inet256.PrivateKey) error {

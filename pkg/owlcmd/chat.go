@@ -15,7 +15,7 @@ import (
 
 func newChatCmd(sf func() owl.API) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:  "chat",
+		Use:  "chat <channel-name>",
 		Args: cobra.ExactArgs(1),
 	}
 	persona := personaFlag(cmd)
