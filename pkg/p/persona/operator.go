@@ -16,7 +16,7 @@ type State struct {
 
 type Operator struct {
 	members *memberset.Operator
-	glfs    *glfs.Operator
+	glfs    glfs.Operator
 }
 
 func New(kvop *gotkv.Operator) *Operator {

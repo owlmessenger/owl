@@ -58,8 +58,8 @@ func (f *Feed[S]) State() State[S] {
 func (f *Feed[S]) String() string {
 	sb := &strings.Builder{}
 	sb.WriteString("{ID: ")
-	sb.WriteString(f.ID.String() + ", Peers: {")
-	for peerID, peerState := range f.Peers {
+	sb.WriteString(f.state.ID.String() + ", Peers: {")
+	for peerID, peerState := range f.state.Peers {
 		fmt.Fprintf(sb, "%v: {Heads: %v} ", peerID, peerState.Heads)
 	}
 	sb.WriteString("} }")
@@ -67,14 +67,14 @@ func (f *Feed[S]) String() string {
 }
 
 func (f *Feed[S]) GetID() NodeID {
-	return f.ID
+	return f.state.ID
 }
 
 // SetHeads sets the heads for peer to heads
 // SetHeads will fail if the structure transitively reachable by heads contains dangling references.
 // Use AddNode to ensure that the nodes exist.
 func (f *Feed[S]) SetHeads(ctx context.Context, s cadata.Store, peer PeerID, heads []NodeID) error {
-	if _, exists := f.Peers[peer]; !exists {
+	if _, exists := f.state.Peers[peer]; !exists {
 		return ErrPeerNotInFeed{Peer: peer}
 	}
 	// ensure all the ids refer to valid nodes.
@@ -85,22 +85,22 @@ func (f *Feed[S]) SetHeads(ctx context.Context, s cadata.Store, peer PeerID, hea
 	if err := checkSenders(nodes); err != nil {
 		return err
 	}
-	ps := f.Peers[peer]
+	ps := f.state.Peers[peer]
 	ps.setHeads(heads)
 	return nil
 }
 
 // GetHeads returns the source nodes for peer
 func (f *Feed[S]) GetHeads(peer PeerID) []NodeID {
-	return f.Peers[peer].Heads
+	return f.state.Peers[peer].Heads
 }
 
-func (f *Feed[S]) GetState(peer PeerID) State {
-	return f.Peers[peer].State
+func (f *Feed[S]) GetState(peer PeerID) State[S] {
+	return f.state.Peers[peer].State
 }
 
 func (f *Feed[S]) HasPeer(accordingTo, target PeerID) bool {
-	return f.Peers[accordingTo].State.HasPeer(target)
+	return f.state.Peers[accordingTo].State.HasPeer(target)
 }
 
 // AddNode checks that the node is valid, which entails checking it only references valid nodes,
@@ -219,16 +219,16 @@ func (f *Feed[S]) isHead(id NodeID) bool {
 }
 
 func (f *Feed[S]) CanRead(from PeerID) bool {
-	_, exists := f.Peers[from]
+	_, exists := f.state.Peers[from]
 	return exists
 }
 
-type PeerState[S any] struct {
+type PeerState[T any] struct {
 	Heads IDSet[NodeID] `json:"heads"`
-	State S             `json:"state"`
+	State State[T]      `json:"state"`
 }
 
-func (ps *peerState) append(id NodeID, x Node) error {
+func (ps *PeerState[T]) append(id NodeID, x Node) error {
 	next, err := ps.State.Evolve(x)
 	if err != nil {
 		return err
@@ -238,11 +238,11 @@ func (ps *peerState) append(id NodeID, x Node) error {
 	return nil
 }
 
-func (ps *peerState) setHeads(heads []NodeID) {
+func (ps *PeerState[T]) setHeads(heads []NodeID) {
 	ps.Heads = append(ps.Heads[:0], heads...)
 }
 
-func headsFromPeerStates(x map[PeerID]*peerState) IDSet[NodeID] {
+func headsFromPeerStates(x map[PeerID]*PeerState[T]) IDSet[NodeID] {
 	ret := NewIDSet[NodeID]()
 	for _, ps := range x {
 		ret = Union(ret, ps.Heads)
