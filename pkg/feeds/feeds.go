@@ -12,49 +12,50 @@ import (
 	"golang.org/x/exp/maps"
 )
 
-type Feed struct {
-	ID    NodeID                `json:"id"`
-	Peers map[PeerID]*peerState `json:"peers"`
+type Protocol[S any] interface {
+	Validate(ctx context.Context, author PeerID, prevs, next S) error
+	Merge(ctx context.Context, states []S) (S, error)
 }
 
-func NewEmpty(ctx context.Context, s cadata.Store, peers []PeerID) (*Feed, error) {
+type State[S any] struct {
+	ID    NodeID                   `json:"id"`
+	Peers map[PeerID]*PeerState[S] `json:"peers"`
+}
+
+type Feed[S any] struct {
+	state    State[S]
+	protocol Protocol[S]
+}
+
+func NewInit[S any](ctx context.Context, s cadata.Store, init S) (*State[S], error) {
 	salt := [32]byte{}
 	if _, err := rand.Read(salt[:]); err != nil {
 		return nil, err
 	}
-	init := Init{
-		Salt:  salt,
-		Peers: NewIDSet(peers...),
+	state, err := json.Marshal(init)
+	if err != nil {
+		return nil, err
 	}
 	node := Node{
-		Init: &init,
+		State: state,
+		Salt:  salt[:],
 	}
 	id, err := postNode(ctx, s, node)
 	if err != nil {
 		return nil, err
 	}
-	peerStates := map[PeerID]*peerState{}
-	for _, peer := range init.Peers {
-		peerStates[peer] = &peerState{
-			Heads: []NodeID{*id},
-			State: *NewState(node),
-		}
-	}
-	return &Feed{
-		ID:    *id,
-		Peers: peerStates,
-	}, nil
+	return &State[S]{ID: *id}, nil
 }
 
-func ParseFeed(data []byte) (*Feed, error) {
-	var feed Feed
-	if err := json.Unmarshal(data, &feed); err != nil {
-		return nil, err
-	}
-	return &feed, nil
+func FromState[T any](s State[T], p Protocol[T]) *Feed[T] {
+	return &Feed[T]{state: s, protocol: p}
 }
 
-func (f *Feed) String() string {
+func (f *Feed[S]) State() State[S] {
+	return f.state
+}
+
+func (f *Feed[S]) String() string {
 	sb := &strings.Builder{}
 	sb.WriteString("{ID: ")
 	sb.WriteString(f.ID.String() + ", Peers: {")
@@ -65,22 +66,14 @@ func (f *Feed) String() string {
 	return sb.String()
 }
 
-func (f *Feed) Marshal() []byte {
-	data, err := json.Marshal(f)
-	if err != nil {
-		panic(err)
-	}
-	return data
-}
-
-func (f *Feed) GetID() NodeID {
+func (f *Feed[S]) GetID() NodeID {
 	return f.ID
 }
 
 // SetHeads sets the heads for peer to heads
 // SetHeads will fail if the structure transitively reachable by heads contains dangling references.
 // Use AddNode to ensure that the nodes exist.
-func (f *Feed) SetHeads(ctx context.Context, s cadata.Store, peer PeerID, heads []NodeID) error {
+func (f *Feed[S]) SetHeads(ctx context.Context, s cadata.Store, peer PeerID, heads []NodeID) error {
 	if _, exists := f.Peers[peer]; !exists {
 		return ErrPeerNotInFeed{Peer: peer}
 	}
@@ -98,22 +91,22 @@ func (f *Feed) SetHeads(ctx context.Context, s cadata.Store, peer PeerID, heads 
 }
 
 // GetHeads returns the source nodes for peer
-func (f *Feed) GetHeads(peer PeerID) []NodeID {
+func (f *Feed[S]) GetHeads(peer PeerID) []NodeID {
 	return f.Peers[peer].Heads
 }
 
-func (f *Feed) GetState(peer PeerID) State {
+func (f *Feed[S]) GetState(peer PeerID) State {
 	return f.Peers[peer].State
 }
 
-func (f *Feed) HasPeer(accordingTo, target PeerID) bool {
+func (f *Feed[S]) HasPeer(accordingTo, target PeerID) bool {
 	return f.Peers[accordingTo].State.HasPeer(target)
 }
 
 // AddNode checks that the node is valid, which entails checking it only references valid nodes,
 // and then posts the node to s.
 // AddNode assumes that s only contains valid nodes.
-func (f *Feed) AddNode(ctx context.Context, s cadata.Store, peer PeerID, node Node) error {
+func (f *Feed[S]) AddNode(ctx context.Context, s cadata.Store, peer PeerID, node Node) error {
 	if err := f.CheckNode(ctx, s, peer, node); err != nil {
 		return err
 	}
@@ -121,45 +114,18 @@ func (f *Feed) AddNode(ctx context.Context, s cadata.Store, peer PeerID, node No
 	return err
 }
 
-// AddPeer adds peers to the feed as actor
-func (f *Feed) AddPeer(ctx context.Context, s cadata.Store, actor PeerID, peer PeerID, perms uint8) error {
-	// TODO: check when last unity was.  Prevent adding a peer when it could exceed the maximum limit.
-	return f.append(ctx, s, actor, Node{
-		AddPeer: &AddPeer{
-			Peer: peer,
-		},
-	})
-}
-
-// RemovePeer removes peers from the feed as actor
-func (f *Feed) RemovePeer(ctx context.Context, s cadata.Store, actor PeerID, peer PeerID) error {
-	// TODO: Check if peer exists in actor's version of the feed
-	return f.append(ctx, s, actor, Node{
-		RemovePeer: &RemovePeer{
-			Peer: peer,
-		},
-	})
-}
-
-// AppendData adds data to the feed as actor
-func (f *Feed) AppendData(ctx context.Context, s cadata.Store, actor PeerID, data []byte) error {
-	return f.append(ctx, s, actor, Node{
-		Data: data,
-	})
-}
-
 // AdoptHeads checks that each of target's heads are valid, including their history,
 // Any of target's heads which are valid, and not reachable by existing heads will be added to actors view of the feed.
-func (f *Feed) AdoptHeads(ctx context.Context, s cadata.Store, actor, target PeerID) error {
+func (f *Feed[S]) AdoptHeads(ctx context.Context, s cadata.Store, actor, target PeerID) error {
 	panic("")
 }
 
 // Trust causes actor to accept target's heads as true.
-func (f *Feed) Trust(ctx context.Context, s cadata.Store, actor, target PeerID) error {
+func (f *Feed[S]) Trust(ctx context.Context, s cadata.Store, actor, target PeerID) error {
 	panic("")
 }
 
-func (f *Feed) append(ctx context.Context, s cadata.Store, actor PeerID, node Node) error {
+func (f *Feed[S]) append(ctx context.Context, s cadata.Store, actor PeerID, node Node) error {
 	node.Author = actor
 	node.Previous = f.Peers[actor].Heads
 	prevNodes, err := getAllNodes(ctx, s, node.Previous)
@@ -178,15 +144,15 @@ func (f *Feed) append(ctx context.Context, s cadata.Store, actor PeerID, node No
 	return f.Peers[actor].append(*id, node)
 }
 
-func (f *Feed) AllHeads() []NodeID {
+func (f *Feed[S]) AllHeads() []NodeID {
 	return headsFromPeerStates(f.Peers)
 }
 
-func (f *Feed) Members() []PeerID {
+func (f *Feed[S]) Members() []PeerID {
 	return maps.Keys(f.Peers)
 }
 
-// func (f *Feed) Verify(ctx context.Context, s cadata.Getter, trust []PeerID, target cadata.ID) error {
+// func (f *Feed[S]) Verify(ctx context.Context, s cadata.Getter, trust []PeerID, target cadata.ID) error {
 // 	targetNode, err := getNode(ctx, s, target)
 // 	if err != nil {
 // 		return err
@@ -201,7 +167,7 @@ func (f *Feed) Members() []PeerID {
 // }
 
 // HasPeerVerified returns true if peer has included target in their view of the feed.
-func (f *Feed) HasPeerVerified(ctx context.Context, s cadata.Getter, peer PeerID, target cadata.ID) (bool, error) {
+func (f *Feed[S]) HasPeerVerified(ctx context.Context, s cadata.Getter, peer PeerID, target cadata.ID) (bool, error) {
 	ps := f.Peers[peer]
 	targetNode, err := GetNode(ctx, s, target)
 	if err != nil {
@@ -211,7 +177,7 @@ func (f *Feed) HasPeerVerified(ctx context.Context, s cadata.Getter, peer PeerID
 }
 
 // CheckNode determines if the entry can be applied to the feed in its current state.
-func (f *Feed) CheckNode(ctx context.Context, s cadata.Getter, from PeerID, node Node) error {
+func (f *Feed[S]) CheckNode(ctx context.Context, s cadata.Getter, from PeerID, node Node) error {
 	_, exists := f.Peers[from]
 	if !exists {
 		return ErrPeerNotInFeed{Peer: from}
@@ -243,7 +209,7 @@ func (f *Feed) CheckNode(ctx context.Context, s cadata.Getter, from PeerID, node
 	return err
 }
 
-func (f *Feed) isHead(id NodeID) bool {
+func (f *Feed[S]) isHead(id NodeID) bool {
 	for _, ps := range f.Peers {
 		if ps.Heads.Contains(id) {
 			return true
@@ -252,14 +218,14 @@ func (f *Feed) isHead(id NodeID) bool {
 	return false
 }
 
-func (f *Feed) CanRead(from PeerID) bool {
+func (f *Feed[S]) CanRead(from PeerID) bool {
 	_, exists := f.Peers[from]
 	return exists
 }
 
-type peerState struct {
+type PeerState[S any] struct {
 	Heads IDSet[NodeID] `json:"heads"`
-	State State         `json:"state"`
+	State S             `json:"state"`
 }
 
 func (ps *peerState) append(id NodeID, x Node) error {
@@ -284,7 +250,7 @@ func headsFromPeerStates(x map[PeerID]*peerState) IDSet[NodeID] {
 	return ret
 }
 
-func (f *Feed) SyncHeads(ctx context.Context, dst cadata.Store, src cadata.Getter, heads []NodeID) error {
+func (f *Feed[S]) SyncHeads(ctx context.Context, dst cadata.Store, src cadata.Getter, heads []NodeID) error {
 	for _, id := range heads {
 		exists, err := cadata.Exists(ctx, dst, id)
 		if err != nil {
