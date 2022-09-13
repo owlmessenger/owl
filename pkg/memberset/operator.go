@@ -43,7 +43,7 @@ func (o *Operator) Get(ctx context.Context, s cadata.Store, x State, id PeerID) 
 	panic("")
 }
 
-func (o *Operator) AddPeers(ctx context.Context, s cadata.Store, x State, peers []Peer, nonce feeds.NodeID) (*State, error) {
+func (o *Operator) AddPeers(ctx context.Context, s cadata.Store, x State, peers []Peer, nonce feeds.Ref) (*State, error) {
 	var muts []gotkv.Mutation
 	for _, peer := range peers {
 		if exists, err := o.Exists(ctx, s, x, peer.ID); err != nil {
@@ -65,7 +65,7 @@ func (o *Operator) RemovePeers(ctx context.Context, s cadata.Store, x State, pee
 	var muts []gotkv.Mutation
 	for _, peerID := range peers {
 		if err := o.gotkv.ForEach(ctx, s, x, gotkv.PrefixSpan(appendAddPrefix(nil, peerID)), func(ent gotkv.Entry) error {
-			var nonce feeds.NodeID
+			var nonce feeds.Ref
 			copy(nonce[:], ent.Value)
 			k := appendRemoveKey(nil, peerID, nonce)
 			mut := gotkv.Mutation{
@@ -127,7 +127,7 @@ func appendInfoKey(out []byte, x PeerID) []byte {
 	return out
 }
 
-func appendAddKey(out []byte, x PeerID, nonce feeds.NodeID) []byte {
+func appendAddKey(out []byte, x PeerID, nonce feeds.Ref) []byte {
 	out = append(out, '+')
 	out = append(out, x[:]...)
 	out = append(out, nonce[:]...)
@@ -140,7 +140,7 @@ func appendAddPrefix(out []byte, x PeerID) []byte {
 	return out
 }
 
-func appendRemoveKey(out []byte, x PeerID, nonce feeds.NodeID) []byte {
+func appendRemoveKey(out []byte, x PeerID, nonce feeds.Ref) []byte {
 	out = append(out, '-')
 	out = append(out, x[:]...)
 	out = append(out, nonce[:]...)

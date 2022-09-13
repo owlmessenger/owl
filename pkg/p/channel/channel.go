@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 
 	"github.com/brendoncarroll/go-state"
@@ -11,12 +12,13 @@ import (
 	"github.com/owlmessenger/owl/pkg/feeds"
 	"github.com/owlmessenger/owl/pkg/memberset"
 	"github.com/owlmessenger/owl/pkg/slices2"
+	"golang.org/x/exp/slices"
 )
 
 type State struct {
 	Members memberset.State `json:"members"`
 	// TODO: use copy on write data structure with efficient appends
-	Messages []Message `json:"messages"`
+	Events []Pair `json:"messages"`
 }
 
 type Feed feeds.Feed[State]
@@ -37,7 +39,7 @@ func (o *Operator) NewEmpty(ctx context.Context, s cadata.Store, peers []feeds.P
 	if err != nil {
 		return nil, err
 	}
-	return &State{Members: *memberRoot, Messages: nil}, nil
+	return &State{Members: *memberRoot, Events: nil}, nil
 }
 
 func (o *Operator) membApply(ctx context.Context, s cadata.Store, x State, fn func(memberset.State) (*memberset.State, error)) (*State, error) {
@@ -45,18 +47,10 @@ func (o *Operator) membApply(ctx context.Context, s cadata.Store, x State, fn fu
 	if err != nil {
 		return nil, err
 	}
-	return &State{Members: *y, Messages: x.Messages}, nil
+	return &State{Members: *y, Events: x.Events}, nil
 }
 
-func (o *Operator) msgApply(ctx context.Context, s cadata.Store, x State, fn func([]Message) ([]Message, error)) (*State, error) {
-	y, err := fn(x.Messages)
-	if err != nil {
-		return nil, err
-	}
-	return &State{Members: x.Members, Messages: y}, nil
-}
-
-func (o *Operator) AddPeer(ctx context.Context, s cadata.Store, x State, peers []memberset.Peer, nonce feeds.NodeID) (*State, error) {
+func (o *Operator) AddPeer(ctx context.Context, s cadata.Store, x State, peers []memberset.Peer, nonce feeds.ID) (*State, error) {
 	return o.membApply(ctx, s, x, func(x memberset.State) (*memberset.State, error) {
 		return o.members.AddPeers(ctx, s, x, peers, nonce)
 	})
@@ -73,19 +67,69 @@ func (o *Operator) HasMember(ctx context.Context, s cadata.Store, x State, peer 
 }
 
 // Append adds a message from author to the conversation.
-func (o *Operator) Append(ctx context.Context, s cadata.Store, x State, author feeds.PeerID, msg Message) (*State, error) {
+func (o *Operator) Append(ctx context.Context, s cadata.Store, x State, ev Event) (*State, error) {
+	key := EventID{0}
+	if len(x.Events) > 0 {
+		key = x.Events[len(x.Events)-1].ID
+	}
 	return &State{
-		Members:  x.Members,
-		Messages: append(x.Messages, msg),
+		Members: x.Members,
+		Events: append(x.Events, Pair{
+			ID:    key,
+			Event: ev,
+		}),
 	}, nil
 }
 
-func (o *Operator) List(ctx context.Context, s cadata.Store, span state.Span[[]uint64]) ([][]uint64, error) {
-	return nil, nil
+// Read reads messages into buf.
+func (o *Operator) Read(ctx context.Context, s cadata.Store, x State, span state.Span[EventID], buf []Pair) (int, error) {
+	var n int
+	for i := range x.Events {
+		if n >= len(buf) {
+			break
+		}
+		if span.Contains(x.Events[i].ID, IDCompare) {
+			buf[n] = x.Events[i]
+			n++
+		}
+	}
+	return n, nil
+}
+
+// List lists messgae
+func (o *Operator) List(ctx context.Context, s cadata.Store, x State, span state.Span[EventID]) (ret []EventID, _ error) {
+	var n int
+	for i := range x.Events {
+		if n >= len(ret) {
+			break
+		}
+		if span.Contains(x.Events[i].ID, IDCompare) {
+			ret[n] = x.Events[i].ID
+			n++
+		}
+	}
+	return ret, nil
+}
+
+// Get gets a single event by id.
+func (o *Operator) Get(ctx context.Context, s cadata.Store, x State, id EventID) (*Event, error) {
+	var buf [1]Pair
+	span := state.PointSpan(id)
+	n, err := o.Read(ctx, s, x, span, buf[:])
+	if err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return nil, errors.New("message does not exist")
+	}
+	return &buf[0].Event, nil
 }
 
 // Validate determines if the transision is valid
 func (o *Operator) Validate(ctx context.Context, s cadata.Store, author feeds.PeerID, prev, next State) error {
+	if err := o.members.Validate(ctx, s, author, prev.Members, next.Members); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -94,20 +138,34 @@ func (o *Operator) Merge(ctx context.Context, s cadata.Store, xs []State) (*Stat
 	if err != nil {
 		return nil, err
 	}
-	msgs, err := o.mergeMsg(ctx, s, slices2.Map(xs, func(x State) []Message { return x.Messages }))
+	msgs, err := o.mergeMsg(ctx, s, slices2.Map(xs, func(x State) []Pair { return x.Events }))
 	if err != nil {
 		return nil, err
 	}
-	return &State{Members: *mem, Messages: msgs}, nil
+	return &State{Members: *mem, Events: msgs}, nil
 }
 
-func (o *Operator) mergeMsg(ctx context.Context, s cadata.Store, xs [][]Message) ([]Message, error) {
+func (o *Operator) mergeMsg(ctx context.Context, s cadata.Store, xs [][]Pair) ([]Pair, error) {
 	switch len(xs) {
 	case 0:
 		return nil, nil
 	case 1:
 		return xs[0], nil
 	case 2:
+		left, right := xs[0], xs[1]
+		merged := make([]Pair, 0, len(left)+len(right))
+		merged = append(merged, left...)
+		merged = append(merged, right...)
+		slices.SortFunc(merged, func(a, b Pair) bool {
+			if a.Event.Timestamp != b.Event.Timestamp {
+				return a.Event.Timestamp.Before(b.Event.Timestamp)
+			}
+			return false
+		})
+		for i := range merged {
+			merged[i].ID = EventID{uint64(i)}
+		}
+
 		// Diff the two roots, find the last common message.
 		panic("")
 	default:
@@ -120,7 +178,7 @@ func (o *Operator) mergeMsg(ctx context.Context, s cadata.Store, xs [][]Message)
 		if err != nil {
 			return nil, err
 		}
-		return o.mergeMsg(ctx, s, [][]Message{left, right})
+		return o.mergeMsg(ctx, s, [][]Pair{left, right})
 	}
 }
 

@@ -45,6 +45,21 @@ func Union[T ~[32]byte](a, b IDSet[T]) IDSet[T] {
 	return slices2.Merge(a, b, lessThan[T])
 }
 
+func Intersect[T ~[32]byte](a, b IDSet[T]) (ret IDSet[T]) {
+	var xs IDSet[T]
+	if len(a) < len(b) {
+		xs = a
+	} else {
+		xs = b
+	}
+	for _, x := range xs {
+		if b.Contains(x) {
+			ret = append(ret, x)
+		}
+	}
+	return ret
+}
+
 func (s IDSet[T]) IsEmpty() bool {
 	return len(s) > 0
 }

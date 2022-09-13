@@ -12,7 +12,8 @@ import (
 func TestNewEmpty(t *testing.T) {
 	ctx := context.Background()
 	s := cadata.NewMem(Hash, 1<<16)
-	f, err := NewEmpty(ctx, s, []PeerID{newPeerID(0), newPeerID(1)})
+	p := testProtocol{}
+	f, err := NewInit[struct{}](ctx, p, s, struct{}{})
 	require.NoError(t, err)
 	require.NotNil(t, f)
 }
@@ -20,4 +21,23 @@ func TestNewEmpty(t *testing.T) {
 func newPeerID(x int) (ret PeerID) {
 	binary.BigEndian.PutUint64(ret[:], uint64(x))
 	return ret
+}
+
+type testProtocol struct {
+}
+
+func (p testProtocol) Merge(ctx context.Context, xs []struct{}) (struct{}, error) {
+	return struct{}{}, nil
+}
+
+func (p testProtocol) Validate(ctx context.Context, author PeerID, prev, next struct{}) error {
+	return nil
+}
+
+func (p testProtocol) CanRead(ctx context.Context, xs struct{}, peer PeerID) (bool, error) {
+	return true, nil
+}
+
+func (p testProtocol) ListPeers(ctx context.Context, x struct{}) ([]PeerID, error) {
+	return nil, nil
 }

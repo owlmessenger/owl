@@ -15,37 +15,40 @@ import (
 
 const MaxNodeSize = 1 << 16
 
-type NodeID = cadata.ID
+type Ref = cadata.ID
 
 // Node is an entry in the Feed.
 // Also a Node/Vertex in the DAG
-type Node struct {
-	N        uint64        `json:"n"`
-	Min      uint64        `json:"min"`
-	Previous IDSet[NodeID] `json:"prevs"`
-	Author   PeerID        `json:"author"`
+type Node[T any] struct {
+	N        uint64     `json:"n"`
+	Previous IDSet[Ref] `json:"prevs"`
+	Author   PeerID     `json:"author,omitempty"`
 
-	Salt     []byte        `json:"salt"`
-	State json.RawMessage `json:"state"`
+	Salt  []byte `json:"salt,omitempty"`
+	State T      `json:"state"`
 }
 
-func Hash(x []byte) NodeID {
+func Hash(x []byte) Ref {
 	return sha3.Sum256(x)
 }
 
-func NewNodeID(e Node) NodeID {
+func NewRef[T any](e Node[T]) Ref {
 	return Hash(e.Marshal())
 }
 
-func ParseNode(data []byte) (*Node, error) {
-	var x Node
+func IDFromBytes(x []byte) Ref {
+	return cadata.IDFromBytes(x)
+}
+
+func ParseNode[T any](data []byte) (*Node[T], error) {
+	var x Node[T]
 	if err := json.Unmarshal(data, &x); err != nil {
 		return nil, err
 	}
 	return &x, nil
 }
 
-func (n *Node) Marshal() []byte {
+func (n *Node[T]) Marshal() []byte {
 	data, err := json.Marshal(n)
 	if err != nil {
 		panic(err)
@@ -53,21 +56,7 @@ func (n *Node) Marshal() []byte {
 	return data
 }
 
-func peerIDFromBytes(x []byte) (PeerID, error) {
-	if len(x) != 32 {
-		return PeerID{}, fmt.Errorf("wrong length for PeerID HAVE: %d WANT: %d", len(x), 32)
-	}
-	return inet256.AddrFromBytes(x), nil
-}
-
-func nodeIDFromBytes(x []byte) (NodeID, error) {
-	if len(x) != 32 {
-		return NodeID{}, fmt.Errorf("wrong length for NodeID HAVE: %d WANT: %d", len(x), 32)
-	}
-	return cadata.IDFromBytes(x), nil
-}
-
-func postNode(ctx context.Context, s cadata.Poster, n Node) (*NodeID, error) {
+func PostNode[T any](ctx context.Context, s cadata.Poster, n Node[T]) (*Ref, error) {
 	id, err := s.Post(ctx, n.Marshal())
 	if err != nil {
 		return nil, err
@@ -76,23 +65,66 @@ func postNode(ctx context.Context, s cadata.Poster, n Node) (*NodeID, error) {
 }
 
 // GetNode retreives the node with id from s.
-func GetNode(ctx context.Context, s cadata.Getter, id NodeID) (*Node, error) {
-	var node *Node
+func GetNode[T any](ctx context.Context, s cadata.Getter, id Ref) (*Node[T], error) {
+	var node *Node[T]
 	if err := cadata.GetF(ctx, s, id, func(data []byte) error {
 		var err error
-		node, err = ParseNode(data)
+		node, err = ParseNode[T](data)
 		return err
 	}); err != nil {
 		return nil, err
 	}
+	if node.N > 0 && node.Author.IsZero() {
+		return nil, fmt.Errorf("node is missing author")
+	}
+	if node.N == 0 && !node.Author.IsZero() {
+		return nil, fmt.Errorf("initial node should not have author")
+	}
 	return node, nil
 }
 
-func getAllNodes(ctx context.Context, s cadata.Getter, ids []NodeID) ([]Node, error) {
-	nodes := make([]Node, len(ids))
+// CheckNode runs context independent checks on the node.
+func CheckNode[T any](ctx context.Context, s cadata.Getter, node Node[T]) error {
+	if node.N > 0 && len(node.Previous) == 0 {
+		return errors.New("nodes with N > 0 must reference another node")
+	}
+	previous, err := getAllNodes[T](ctx, s, node.Previous)
+	if err != nil {
+		return err
+	}
+	// Check N
+	var expectedN uint64
+	for _, node2 := range previous {
+		if node2.N+1 > expectedN {
+			expectedN = node2.N + 1
+		}
+	}
+	if node.N != expectedN {
+		return ErrBadN[T]{Have: node.N, Want: expectedN, Node: node}
+	}
+	if err := checkSenders(previous); err != nil {
+		return err
+	}
+	return nil
+}
+
+// checkSenders ensures that each Node in previous has a unique sender.
+func checkSenders[T any](previous []Node[T]) error {
+	senders := map[PeerID]struct{}{}
+	for _, node := range previous {
+		if _, exists := senders[node.Author]; exists {
+			return errors.New("a valid set of heads can only contain one head from each sender")
+		}
+		senders[node.Author] = struct{}{}
+	}
+	return nil
+}
+
+func getAllNodes[T any](ctx context.Context, s cadata.Getter, ids []Ref) ([]Node[T], error) {
+	nodes := make([]Node[T], len(ids))
 	for i := range ids {
 		id := ids[i]
-		node, err := GetNode(ctx, s, id)
+		node, err := GetNode[T](ctx, s, id)
 		if err != nil {
 			return nil, err
 		}
@@ -105,29 +137,29 @@ type PeerID = inet256.ID
 
 // ForEachDesc traverses the DAG in descending order of N, starting with ids.
 // Nodes with the same value of N can be visited in any order.
-func ForEachDesc(ctx context.Context, s cadata.Store, ids []NodeID, fn func(NodeID, Node) error) error {
-	nodes, err := getAllNodes(ctx, s, ids)
+func ForEachDesc[T any](ctx context.Context, s cadata.Store, ids []Ref, fn func(Ref, Node[T]) error) error {
+	nodes, err := getAllNodes[T](ctx, s, ids)
 	if err != nil {
 		return err
 	}
-	lt := func(a, b Node) bool {
+	lt := func(a, b Node[T]) bool {
 		return a.N < b.N
 	}
 	for len(nodes) > 0 {
-		var node Node
+		var node Node[T]
 		node, nodes = heap.Pop(nodes, lt)
-		if err := fn(NewNodeID(node), node); err != nil {
+		if err := fn(NewRef(node), node); err != nil {
 			return err
 		}
-		nodes2, err := getAllNodes(ctx, s, node.Previous)
+		nodes2, err := getAllNodes[T](ctx, s, node.Previous)
 		if err != nil {
 			return err
 		}
 		for _, node := range nodes2 {
 			var exists bool
-			nodeID := NewNodeID(node)
+			nodeID := NewRef(node)
 			for _, existing := range nodes {
-				if NewNodeID(existing) == nodeID {
+				if NewRef(existing) == nodeID {
 					exists = true
 					break
 				}
@@ -140,17 +172,17 @@ func ForEachDesc(ctx context.Context, s cadata.Store, ids []NodeID, fn func(Node
 	return nil
 }
 
-type Pair struct {
-	ID   NodeID
-	Node Node
+type Pair[T any] struct {
+	ID   Ref
+	Node Node[T]
 }
 
 // ForEachDescGroup calls fn with all the nodes in the graph, reachable from ids, with a given value of N
 // for each value of N descending down to 0.
-func ForEachDescGroup(ctx context.Context, s cadata.Store, ids []NodeID, fn func(uint64, []Pair) error) error {
+func ForEachDescGroup[T any](ctx context.Context, s cadata.Store, ids []Ref, fn func(uint64, []Pair[T]) error) error {
 	var n uint64 = math.MaxUint64
-	var group []Pair
-	if err := ForEachDesc(ctx, s, ids, func(id NodeID, node Node) error {
+	var group []Pair[T]
+	if err := ForEachDesc(ctx, s, ids, func(id Ref, node Node[T]) error {
 		if group != nil && node.N < n {
 			if err := fn(n, group); err != nil {
 				return err
@@ -158,7 +190,7 @@ func ForEachDescGroup(ctx context.Context, s cadata.Store, ids []NodeID, fn func
 			group = group[:0]
 		}
 		n = node.N
-		group = append(group, Pair{ID: id, Node: node})
+		group = append(group, Pair[T]{ID: id, Node: node})
 		return nil
 	}); err != nil {
 		return err
@@ -171,23 +203,11 @@ func ForEachDescGroup(ctx context.Context, s cadata.Store, ids []NodeID, fn func
 	return nil
 }
 
-func findMaxN(nodes []Node) (int, uint64) {
-	var max uint64
-	index := -1
-	for i := range nodes {
-		if nodes[i].N > max {
-			max = nodes[i].N
-			index = i
-		}
-	}
-	return index, max
-}
-
 // NearestUnity finds a point in the history of ids where a value of N has a single node.
-func NearestUnity(ctx context.Context, s cadata.Store, ids IDSet[NodeID]) (*NodeID, error) {
+func NearestUnity(ctx context.Context, s cadata.Store, ids IDSet[Ref]) (*Ref, error) {
 	stopIter := errors.New("stop iteration")
-	var ret *NodeID
-	if err := ForEachDescGroup(ctx, s, ids, func(_ uint64, pairs []Pair) error {
+	var ret *Ref
+	if err := ForEachDescGroup(ctx, s, ids, func(_ uint64, pairs []Pair[json.RawMessage]) error {
 		if len(pairs) == 1 {
 			ret = &pairs[0].ID
 			return stopIter
@@ -199,11 +219,11 @@ func NearestUnity(ctx context.Context, s cadata.Store, ids IDSet[NodeID]) (*Node
 	return ret, nil
 }
 
-func reachableFrom(ctx context.Context, s cadata.Getter, srcs IDSet[NodeID], target cadata.ID, targetN uint64) (bool, error) {
+func reachableFrom(ctx context.Context, s cadata.Getter, srcs IDSet[Ref], target cadata.ID, targetN uint64) (bool, error) {
 	if srcs.Contains(target) {
 		return true, nil
 	}
-	nodes, err := getAllNodes(ctx, s, srcs)
+	nodes, err := getAllNodes[json.RawMessage](ctx, s, srcs)
 	if err != nil {
 		return false, err
 	}

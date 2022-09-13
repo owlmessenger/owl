@@ -6,23 +6,25 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/blobcache/glfs"
+	"github.com/brendoncarroll/go-state"
 	"github.com/inet256/inet256/pkg/inet256"
+
+	"github.com/owlmessenger/owl/pkg/feeds"
 	"github.com/owlmessenger/owl/pkg/owlnet"
+	"github.com/owlmessenger/owl/pkg/p/channel"
 )
 
 type PeerID = owlnet.PeerID
 
 // A Persona is a collection of inet256.IDs
-// LocalIDs are IDs which the instance has a private key for, and can therefore send as those Personas.
+// LocalIDs are IDs which the instance has a private key for, and can therefore send as those Peers.
 type Persona struct {
-	PublicFeed  *owlnet.FeedID
-	PrivateFeed *owlnet.FeedID
-
 	LocalIDs  []PeerID
 	RemoteIDs []PeerID
 }
@@ -31,26 +33,41 @@ type PersonaAPI interface {
 	// CreatePersona creates a new persona called name.
 	// If any ids are provided then the persona will not have a feed, and will attempt to join
 	// a feed provided by one of the IDs.
-	CreatePersona(ctx context.Context, name string, ids []PeerID) error
+	CreatePersona(ctx context.Context, name string) error
+	// JoinPersona joins a persona, which has already been created on another peer.
+	JoinPersona(ctx context.Context, name string, peers []PeerID) error
 	// GetPersona retrieves the Persona at name
 	GetPersona(ctx context.Context, name string) (*Persona, error)
-	// ListPersonas lists personas
+	// ListPersonas lists personas on the instance.
 	ListPersonas(ctx context.Context) ([]string, error)
 	// ExpandPersona adds a peer to the Persona at name.
 	ExpandPersona(ctx context.Context, name string, peer PeerID) error
 	// ShrinkPersona removes a peer from the Persona at name
 	ShrinkPersona(ctx context.Context, name string, peer PeerID) error
-	// GetPeer returns a peer that others can use to contact the persona
-	GetPeer(ctx context.Context, name string) (*PeerID, error)
+}
+
+type Contact struct {
+	Addrs []inet256.Addr
 }
 
 type ContactAPI interface {
-	// AddContact adds a contact to the contact list for persona
-	AddContact(ctx context.Context, persona, name string, ids inet256.ID) error
+	// CreateContact adds a contact to the contact list for persona
+	CreateContact(ctx context.Context, persona, name string, c Contact) error
 	// RemoveContact removes a contact.
-	RemoveContact(ctx context.Context, persona, name string) error
+	DeleteContact(ctx context.Context, persona, name string) error
 	// ListContacts lists contacts starting with begin.
 	ListContact(ctx context.Context, persona string) ([]string, error)
+	// GetContact returns information about a contact.
+	GetContact(ctx context.Context, persona, name string) (*Contact, error)
+}
+
+var validContactName = regexp.MustCompile(`^[A-Za-z0-9 \-_.]$`)
+
+func CheckContactName(x string) error {
+	if !validContactName.MatchString(x) {
+		return errors.New("invalid contact name")
+	}
+	return nil
 }
 
 // ChannelID uniquely identifies a channel
@@ -60,28 +77,24 @@ type ChannelID struct {
 }
 
 func (a ChannelID) Compare(b ChannelID) int {
-	switch {
-	case a.Persona < b.Persona:
-		return -1
-	case a.Persona > b.Persona:
-		return 1
-	case a.Name < b.Name:
-		return -1
-	case a.Name > b.Name:
-		return 1
-	default:
-		return 0
+	if a.Persona != b.Persona {
+		return strings.Compare(a.Persona, b.Persona)
 	}
+	if a.Name != b.Name {
+		return strings.Compare(a.Persona, b.Persona)
+	}
+	return 0
 }
 
 type ChannelInfo struct {
+	Feed   feeds.ID
 	Latest EventPath
 }
 
 // EventPath identifies an event within a channel
 // EventPaths will always have a length > 0.
 // If the length is > 1, then all but the last element are considered the ThreadID
-type EventPath []uint64
+type EventPath channel.EventID
 
 func ParseEventPath(data []byte) (EventPath, error) {
 	if len(data) < 8 || len(data)%8 != 0 {
@@ -200,9 +213,10 @@ type ChannelAPI interface {
 	// DeleteChannel deletes the channel with name if it exists
 	DeleteChannel(ctx context.Context, cid ChannelID) error
 	// ListChannels lists channels starting with begin
-	ListChannels(ctx context.Context, persona string, begin string, limit int) ([]string, error)
+	ListChannels(ctx context.Context, persona string, span state.Span[string], limit int) ([]string, error)
 	// GetLatest returns the latest EventIndex
 	GetChannel(ctx context.Context, cid ChannelID) (*ChannelInfo, error)
+
 	// Send, sends a message to a channel.
 	Send(ctx context.Context, cid ChannelID, mp MessageParams) error
 	// Read reads events from a channel

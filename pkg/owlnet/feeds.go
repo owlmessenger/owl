@@ -6,10 +6,9 @@ import (
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/owlmessenger/owl/pkg/feeds"
-	"github.com/sirupsen/logrus"
 )
 
-type FeedID = feeds.NodeID
+type FeedID = feeds.ID
 
 type FeedReq struct {
 	GetHeads  *GetHeadsReq  `json:"get_heads,omitempty"`
@@ -21,15 +20,15 @@ type GetHeadsReq struct {
 }
 
 type PushHeadsReq struct {
-	FeedID FeedID         `json:"feed_id"`
-	Heads  []feeds.NodeID `json:"heads"`
-	Blobs  []byte         `json:"blobs"`
+	FeedID FeedID      `json:"feed_id"`
+	Heads  []feeds.Ref `json:"heads"`
+	Blobs  []byte      `json:"blobs"`
 }
 
 type FeedRes struct {
 	Error *WireError
 
-	GetHeads  []feeds.NodeID
+	GetHeads  []feeds.Ref
 	PushHeads *struct{}
 }
 
@@ -37,7 +36,7 @@ type FeedsClient struct {
 	swarm p2p.SecureAskSwarm[PeerID]
 }
 
-func (fc FeedsClient) GetHeads(ctx context.Context, dst PeerID) ([]feeds.NodeID, error) {
+func (fc FeedsClient) GetHeads(ctx context.Context, dst PeerID) ([]feeds.Ref, error) {
 	res, err := fc.ask(ctx, dst, FeedReq{})
 	if err != nil {
 		return nil, err
@@ -48,7 +47,7 @@ func (fc FeedsClient) GetHeads(ctx context.Context, dst PeerID) ([]feeds.NodeID,
 	return res.GetHeads, nil
 }
 
-func (fc FeedsClient) PushHeads(ctx context.Context, dst PeerID, heads []feeds.NodeID) error {
+func (fc FeedsClient) PushHeads(ctx context.Context, dst PeerID, heads []feeds.Ref) error {
 	res, err := fc.ask(ctx, dst, FeedReq{})
 	if err != nil {
 		return err
@@ -68,9 +67,8 @@ func (fc FeedsClient) ask(ctx context.Context, dst PeerID, req FeedReq) (*FeedRe
 }
 
 type FeedsServer struct {
-	Logger *logrus.Logger
-	OnPush func(from PeerID, feedID [32]byte, heads []feeds.NodeID) error
-	OnGet  func(from PeerID, feedID [32]byte) ([]feeds.NodeID, error)
+	OnPush func(from PeerID, feedID [32]byte, heads []feeds.Ref) error
+	OnGet  func(from PeerID, feedID [32]byte) ([]feeds.Ref, error)
 }
 
 func (fs FeedsServer) HandleAsk(ctx context.Context, resp []byte, msg p2p.Message[PeerID]) int {

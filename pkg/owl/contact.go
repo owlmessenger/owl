@@ -2,122 +2,103 @@ package owl
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 
 	"github.com/brendoncarroll/go-state/cadata"
-	"github.com/inet256/inet256/pkg/inet256"
-	"github.com/jmoiron/sqlx"
-	"golang.org/x/exp/maps"
 
 	"github.com/owlmessenger/owl/pkg/dbutil"
-	"github.com/owlmessenger/owl/pkg/owlnet"
+	"github.com/owlmessenger/owl/pkg/feeds"
+	"github.com/owlmessenger/owl/pkg/p/contactset"
 )
 
 var _ ContactAPI = &Server{}
 
-func (s *Server) AddContact(ctx context.Context, persona string, name string, id PeerID) error {
-	if err := dbutil.DoTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		return s.addContact(tx, persona, name, id)
-	}); err != nil {
-		return err
-	}
-	// TODO: try to get feed from initial peer
-	_, err := s.getLocalPeer(s.db, persona)
+// CreateContact looks up the contactset for persona, then puts an entry (name, contact) in that set.
+func (s *Server) CreateContact(ctx context.Context, persona string, name string, c Contact) error {
+	feedID, err := s.lookupContactSetFeed(s.db, persona)
 	if err != nil {
 		return err
 	}
-	return nil
+	peerID, err := s.GetLocalPeer(ctx, persona)
+	if err != nil {
+		return err
+	}
+	return s.contactSetCtrl.Modify(ctx, feedID, *peerID, func(feed *feeds.Feed[contactset.State], s cadata.Store) error {
+		return feed.Modify(ctx, *peerID, func(prev []cadata.ID, x contactset.State) (*contactset.State, error) {
+			op := contactset.New()
+			return op.Create(ctx, s, x, name, c.Addrs)
+		})
+	})
 }
 
-func (s *Server) RemoveContact(ctx context.Context, persona, name string) error {
-	panic("not implemented")
+func (s *Server) DeleteContact(ctx context.Context, persona, name string) error {
+	feedID, err := s.lookupContactSetFeed(s.db, persona)
+	if err != nil {
+		return err
+	}
+	peerID, err := s.GetLocalPeer(ctx, persona)
+	if err != nil {
+		return err
+	}
+	op := s.getContactSetOp()
+	return s.contactSetCtrl.Modify(ctx, feedID, *peerID, func(feed *feeds.Feed[contactset.State], s cadata.Store) error {
+		return feed.Modify(ctx, *peerID, func(prev []cadata.ID, x contactset.State) (*contactset.State, error) {
+			return op.Delete(ctx, s, x, name)
+		})
+	})
 }
 
 func (s *Server) ListContact(ctx context.Context, persona string) ([]string, error) {
-	return s.listContacts(s.db, persona)
-}
-
-func (s *Server) addContact(tx *sqlx.Tx, persona, name string, peerID PeerID) error {
-	var personaID int
-	if err := tx.Get(&personaID, `SELECT id FROM personas WHERE name = ?`, persona); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`INSERT INTO persona_contacts (persona_id, name, last_peer) VALUES (?, ?, ?)`, personaID, name, peerID[:]); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (s *Server) listContacts(db dbSelector, persona string) (ret []string, err error) {
-	err = db.Select(&ret, `SELECT persona_contacts.name FROM personas
-		JOIN persona_contacts on personas.id = persona_contacts.persona_id
-		WHERE personas.name = ?
-	`, persona)
-	return ret, err
-}
-
-func (s *Server) getPeersFor(tx *sqlx.Tx, persona string, contact string) ([]PeerID, error) {
-	lastPeer, err := s.getLastPeer(tx, persona, contact)
+	feedID, err := s.lookupContactSetFeed(s.db, persona)
 	if err != nil {
 		return nil, err
 	}
-	ret := []PeerID{lastPeer}
-	feedID, err := s.lookupContactFeed(tx, persona, contact)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ret, nil
-		}
-		return nil, err
-	}
-	feed, err := loadFeed(tx, feedID)
+	state, store, err := s.contactSetCtrl.View(ctx, feedID)
 	if err != nil {
 		return nil, err
 	}
-	// TODO: don't just use the whole feed for peers
-	ret = append(ret, maps.Keys(feed.Peers)...)
-	// TODO: lookup peers from feed
-	return ret, nil
+	op := s.getContactSetOp()
+	return op.List(ctx, store, *state)
 }
 
-func (s *Server) lookupContactFeed(tx *sqlx.Tx, persona, contact string) (owlnet.FeedID, error) {
-	var x []byte
-	if err := tx.Get(&x, `SELECT persona_contacts.feed_id FROM personas
-		JOIN persona_contacts ON personas.id = persona_contacts.persona_id
-		WHERE personas.name = ? AND persona_contacts.name = ? AND persona_contacts.feed_id IS NOT NULL
-	`, persona, contact); err != nil {
-		return owlnet.FeedID{}, err
+func (s *Server) GetContact(ctx context.Context, persona, name string) (*Contact, error) {
+	feedID, err := s.lookupContactSetFeed(s.db, persona)
+	if err != nil {
+		return nil, err
 	}
-	return cadata.IDFromBytes(x), nil
+	state, store, err := s.contactSetCtrl.View(ctx, feedID)
+	if err != nil {
+		return nil, err
+	}
+	op := s.getContactSetOp()
+	cinfo, err := op.Get(ctx, store, *state, name)
+	if err != nil {
+		return nil, err
+	}
+	return &Contact{
+		Addrs: cinfo.Active,
+	}, nil
 }
 
-func (s *Server) getLastPeer(tx *sqlx.Tx, persona string, contact string) (ret PeerID, err error) {
-	var lastBytes []byte
-	if err := tx.Get(&lastBytes, `SELECT last_peer FROM personas
-		JOIN persona_contacts ON personas.id = persona_contacts.persona_id
-		WHERE personas.name = ? AND persona_contacts.name = ?
-	`, persona, contact); err != nil {
-		return PeerID{}, err
+// WhoIs returns the contact name for a peer
+func (s *Server) WhoIs(ctx context.Context, persona string, peerID PeerID) (string, error) {
+	feedID, err := s.lookupContactSetFeed(s.db, persona)
+	if err != nil {
+		return "", err
 	}
-	return inet256.AddrFromBytes(lastBytes), nil
+	x, store, err := s.contactSetCtrl.View(ctx, feedID)
+	if err != nil {
+		return "", err
+	}
+	op := s.getContactSetOp()
+	return op.WhoIs(ctx, store, *x, peerID)
 }
 
-// lookupName returns the contact name for a peer
-func (s *Server) lookupName(tx dbGetter, persona string, peerID PeerID) (string, error) {
-	var name string
-	// local personas
-	if err := tx.Get(&name, `SELECT personas.name FROM personas
-		JOIN persona_keys ON personas.id = persona_keys.persona_id
-		WHERE personas.name = ? AND persona_keys.id = ?
-	`, persona, peerID[:]); !errors.Is(err, sql.ErrNoRows) {
-		return name, err
-	}
-	// last_peers
-	if err := tx.Get(&name, `SELECT persona_contacts.name FROM personas
-		JOIN persona_contacts ON personas.id = persona_contacts.persona_id
-		WHERE personas.name = ? AND persona_contacts.last_peer = ?
-	`, persona, peerID[:]); !errors.Is(err, sql.ErrNoRows) {
-		return name, err
-	}
-	return "", errors.New("no contact/persona found for peer")
+func (s *Server) lookupContactSetFeed(tx dbutil.Reader, persona string) (int, error) {
+	var feedID int
+	err := tx.Get(&feedID, `SELECT contactset_feed FROM personas WHERE name = ?`, persona)
+	return feedID, err
+}
+
+func (s *Server) getContactSetOp() contactset.Operator {
+	return contactset.New()
 }

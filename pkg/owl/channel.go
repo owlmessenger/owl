@@ -2,114 +2,188 @@ package owl
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"math"
+	"time"
 
-	"github.com/blobcache/glfs"
+	"github.com/brendoncarroll/go-state"
+	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/brendoncarroll/go-tai64"
-	"github.com/jmoiron/sqlx"
 
 	"github.com/owlmessenger/owl/pkg/dbutil"
 	"github.com/owlmessenger/owl/pkg/feeds"
-	"github.com/owlmessenger/owl/pkg/owlnet"
+	"github.com/owlmessenger/owl/pkg/p/channel"
+	"github.com/owlmessenger/owl/pkg/p/directory"
 )
 
 const MaxChannelPeers = 256
 
 var _ ChannelAPI = &Server{}
 
+// CreateChannel creates a new channel
 func (s *Server) CreateChannel(ctx context.Context, cid ChannelID, members []string) error {
 	if err := s.Init(ctx); err != nil {
 		return err
 	}
-	var feedID *owlnet.FeedID
-	var localID PeerID
-	if err := dbutil.DoTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		var err error
-		localID, err = s.getAuthor(tx, cid)
+	// collect peer addresses
+	var peers []PeerID
+	for _, member := range members {
+		c, err := s.GetContact(ctx, cid.Persona, member)
 		if err != nil {
 			return err
 		}
-		peers := []PeerID{localID}
-		for _, member := range members {
-			peers2, err := s.getPeersFor(tx, cid.Persona, member)
-			if err != nil {
-				return err
-			}
-			peers = append(peers, peers2...)
-		}
-		feedID, err = createFeed(tx, peers)
-		if err != nil {
-			return err
-		}
-		if _, err := s.createChannel(tx, cid, *feedID); err != nil {
-			return err
-		}
-		return s.feedController.TouchTx(tx, *feedID, localID)
-	}); err != nil {
+		peers = append(peers, c.Addrs...)
+	}
+	feedID, err := s.channelCtrl.Create(ctx, func(s cadata.Store) (*channel.State, error) {
+		op := channel.New()
+		return op.NewEmpty(ctx, s, peers)
+	})
+	if err != nil {
 		return err
 	}
-	return s.feedController.Touch(ctx, *feedID, localID)
+	var rootID feeds.ID
+	if err := s.db.GetContext(ctx, &rootID, `SELECT root FROM feeds WHERE root = ?`, feedID); err != nil {
+		return err
+	}
+	return s.AddChannel(ctx, cid, rootID)
 }
 
-func (s *Server) DeleteChannel(ctx context.Context, cid ChannelID) error {
-	return dbutil.DoTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		feedID, _, err := s.lookupChannelFeed(tx, cid)
-		if err != nil {
-			return err
-		}
-		if err := deleteFeed(tx, feedID); err != nil {
-			return err
-		}
-		return s.deleteChannel(tx, cid)
+// AddChannel adds an existing channel feed identified by cid.
+func (s *Server) AddChannel(ctx context.Context, cid ChannelID, fid feeds.ID) error {
+	if err := s.Init(ctx); err != nil {
+		return err
+	}
+	dirFeed, err := lookupDirectoryFeed(s.db, cid.Persona)
+	if err != nil {
+		return err
+	}
+	localID, err := s.GetLocalPeer(ctx, cid.Persona)
+	if err != nil {
+		return err
+	}
+	return s.directoryCtrl.Modify(ctx, dirFeed, *localID, func(feed *feeds.Feed[directory.State], s cadata.Store) error {
+		op := directory.New()
+		return feed.Modify(ctx, *localID, func(prev []feeds.Ref, x directory.State) (*directory.State, error) {
+			if exists, err := op.Exists(ctx, s, x, cid.Name); err != nil {
+				return nil, err
+			} else if exists {
+				return nil, errors.New("channel already exists with that name")
+			}
+			return op.Put(ctx, s, x, cid.Name, directory.Value{Channel: &fid})
+		})
 	})
 }
 
-func (s *Server) ListChannels(ctx context.Context, persona, begin string, limit int) ([]string, error) {
+func (s *Server) DeleteChannel(ctx context.Context, cid ChannelID) error {
+	if err := s.Init(ctx); err != nil {
+		return err
+	}
+	dirFeed, err := lookupDirectoryFeed(s.db, cid.Persona)
+	if err != nil {
+		return err
+	}
+	localID, err := s.GetLocalPeer(ctx, cid.Persona)
+	if err != nil {
+		return err
+	}
+	return s.directoryCtrl.Modify(ctx, dirFeed, *localID, func(feed *feeds.Feed[directory.State], s cadata.Store) error {
+		op := directory.New()
+		return feed.Modify(ctx, *localID, func(prev []feeds.Ref, x directory.State) (*directory.State, error) {
+			return op.Delete(ctx, s, x, cid.Name)
+		})
+	})
+}
+
+func (s *Server) ListChannels(ctx context.Context, persona string, span state.Span[string], limit int) ([]string, error) {
 	if err := s.Init(ctx); err != nil {
 		return nil, err
 	}
 	if limit < 1 {
 		limit = math.MaxInt
 	}
-	var ret []string
-	if err := s.db.SelectContext(ctx, &ret, `SELECT channels.name FROM personas
-		JOIN channels ON  personas.id = channels.persona_id
-		WHERE personas.name = ? AND channels.name >= ?
-		ORDER BY channels.name
-		LIMIT ?
-	`, persona, begin, limit); err != nil {
+	dirFeed, err := lookupDirectoryFeed(s.db, persona)
+	if err != nil {
 		return nil, err
 	}
-	return ret, nil
+	x, store, err := s.directoryCtrl.View(ctx, dirFeed)
+	if err != nil {
+		return nil, err
+	}
+	op := directory.New()
+	return op.List(ctx, store, *x, span)
+}
+
+func (s *Server) GetChannel(ctx context.Context, cid ChannelID) (*ChannelInfo, error) {
+	feedID, err := s.resolveChannel(ctx, cid)
+	if err != nil {
+		return nil, err
+	}
+	return &ChannelInfo{
+		Feed: *feedID,
+	}, nil
+}
+
+func (s *Server) resolveChannel(ctx context.Context, cid ChannelID) (*feeds.ID, error) {
+	dirFeed, err := lookupDirectoryFeed(s.db, cid.Persona)
+	if err != nil {
+		return nil, err
+	}
+	state, store, err := s.directoryCtrl.View(ctx, dirFeed)
+	if err != nil {
+		return nil, err
+	}
+	op := directory.New()
+	v, err := op.Get(ctx, store, *state, cid.Name)
+	if err != nil {
+		return nil, err
+	}
+	if v.Channel == nil {
+		return nil, errors.New("non-channel directory values not supported")
+	}
+	return v.Channel, nil
+}
+
+func (s *Server) lookupChannelFeed(ctx context.Context, cid ChannelID) (int, error) {
+	rootID, err := s.resolveChannel(ctx, cid)
+	if err != nil {
+		return 0, err
+	}
+	var feedID int
+	if err := s.db.Get(&feedID, `SELECT feeds.id FROM personas
+		JOIN persona_channels ON personas.id = persona_channels.persona_id
+		JOIN feeds ON feeds.id = persona_channels.feed_id
+		WHERE personas.name = ? AND feeds.root = ?
+	`, cid.Name, *rootID); err != nil {
+		return 0, err
+	}
+	return feedID, nil
 }
 
 func (s *Server) Send(ctx context.Context, cid ChannelID, mp MessageParams) error {
 	if err := s.Init(ctx); err != nil {
 		return err
 	}
-	// TODO: marshal message
-	// determine localID to send as and the feedID of the channel's feed.
-	var localID owlnet.PeerID
-	var feedID owlnet.FeedID
-	var msgData []byte
-	if err := dbutil.DoTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		var err error
-		localID, err = s.getAuthor(tx, cid)
-		if err != nil {
-			return err
-		}
-		var chanID int
-		feedID, chanID, err = s.lookupChannelFeed(tx, cid)
-		if err != nil {
-			return err
-		}
-		msgData = marshalMessage(s.newMessage(chanID, mp))
-		return err
-	}); err != nil {
+	feedID, err := s.lookupChannelFeed(ctx, cid)
+	if err != nil {
 		return err
 	}
-	return s.feedController.AppendData(ctx, feedID, localID, msgData)
+	localID, err := s.GetLocalPeer(ctx, cid.Persona)
+	if err != nil {
+		return err
+	}
+	var msgData []byte // TODO:
+	msgData = []byte("hello world " + time.Now().String())
+
+	op := channel.New()
+	return s.channelCtrl.Modify(ctx, feedID, *localID, func(feed *feeds.Feed[channel.State], s cadata.Store) error {
+		return feed.Modify(ctx, *localID, func(prev []cadata.ID, x channel.State) (*channel.State, error) {
+			return op.Append(ctx, s, x, channel.Event{
+				From:      *localID,
+				Timestamp: tai64.FromGoTime(time.Now()),
+				Message:   msgData,
+			})
+		})
+	})
 }
 
 func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit int) ([]Pair, error) {
@@ -119,49 +193,33 @@ func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit
 	if limit <= 0 {
 		limit = 1024
 	}
-	type Row struct {
-		Path EventPath `db:"path"`
-		Data []byte    `db:"data"`
-	}
-	var rows []Row
-	if err := s.db.SelectContext(ctx, &rows, `SELECT channel_events.path, blobs.data FROM personas
-		JOIN channels on personas.id = channels.persona_id
-		JOIN channel_events ON channels.id = channel_events.channel_id
-		JOIN blobs ON channel_events.blob_id = blobs.id
-		WHERE personas.name = ? AND channels.name = ? AND channel_events.path >= ?
-		LIMIT ?
-	`, cid.Persona, cid.Name, begin.Marshal(), limit); err != nil {
-		return nil, err
-	}
-	pairs := make([]Pair, len(rows))
-	for i, row := range rows {
-		node, err := feeds.ParseNode(row.Data)
-		if err != nil {
-			return nil, err
-		}
-		ev, err := s.eventFromNode(s.db, cid.Persona, *node)
-		if err != nil {
-			return nil, err
-		}
-		pairs[i] = Pair{Path: row.Path, Event: ev}
-	}
-	return pairs, nil
-}
-
-func (s *Server) GetChannel(ctx context.Context, cid ChannelID) (*ChannelInfo, error) {
-	var data []byte
-	if err := s.db.SelectContext(ctx, &data, `SELECT max(channel_events.path) FROM personas
-		JOIN channels on personas.id = channels.persona_id
-		JOIN channel_events ON channels.id = channel_events.channel_id
-		WHERE personas.name = ? AND channels.name = ?
-	`, cid.Persona, cid.Name); err != nil {
-		return nil, err
-	}
-	ep, err := ParseEventPath(data)
+	feedID, err := s.lookupChannelFeed(ctx, cid)
 	if err != nil {
 		return nil, err
 	}
-	return &ChannelInfo{Latest: ep}, nil
+	x, store, err := s.channelCtrl.View(ctx, feedID)
+	if err != nil {
+		return nil, err
+	}
+	op := channel.New()
+	span := state.TotalSpan[channel.EventID]().WithLowerExcl(channel.EventID(begin))
+	buf := make([]channel.Pair, 128)
+	n, err := op.Read(ctx, store, *x, span, buf)
+	if err != nil {
+		return nil, err
+	}
+	var ret []Pair
+	for _, x := range buf[:n] {
+		y, err := s.convertEvent(ctx, x.Event)
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, Pair{
+			Path:  EventPath(x.ID),
+			Event: y,
+		})
+	}
+	return ret, nil
 }
 
 func (s *Server) Wait(ctx context.Context, cid ChannelID, since EventPath) (EventPath, error) {
@@ -178,81 +236,20 @@ func (s *Server) Flush(ctx context.Context, cid ChannelID) error {
 	return nil
 }
 
-// WireMessage is the structure used to represent messages in the feed.
-type WireMessage struct {
-	SentAt      tai64.TAI64N        `json:"sent_at"`
-	Parent      EventPath           `json:"parent"`
-	Type        string              `json:"type"`
-	Headers     map[string]string   `json:"headers"`
-	Body        string              `json:"body"`
-	Attachments map[string]glfs.Ref `json:"attachments"`
+func lookupDirectoryFeed(tx dbutil.Reader, persona string) (int, error) {
+	var feedID int
+	err := tx.Get(`SELECT directory_feed FROM personas WHERE name = ?`, persona)
+	return feedID, err
 }
 
-func (s *Server) newMessage(chanInt int, mp MessageParams) WireMessage {
-	if len(mp.Parent) > 0 {
-		// TODO: lookup the NodeID of the message and include that.
-		panic("parent messages not yet support")
-	}
-	return WireMessage{
-		SentAt:      tai64.Now(),
-		Type:        mp.Type,
-		Parent:      mp.Parent,
-		Body:        string(mp.Body),
-		Attachments: mp.Attachments,
-	}
-}
-
-func parseMessage(x []byte) (*WireMessage, error) {
-	var ret WireMessage
-	if err := json.Unmarshal(x, &ret); err != nil {
-		return nil, err
-	}
-	return &ret, nil
-}
-
-func marshalMessage(m WireMessage) []byte {
-	data, err := json.Marshal(m)
-	if err != nil {
-		panic(err)
-	}
-	return data
-}
-
-// eventFromNode converts a node in the Feed into an event.
-func (s *Server) eventFromNode(tx dbGetter, persona string, node feeds.Node) (*Event, error) {
+func (s *Server) convertEvent(ctx context.Context, x channel.Event) (*Event, error) {
+	var y Event
 	switch {
-	case node.Init != nil:
-		return &Event{ChannelCreated: &struct{}{}}, nil
-	case node.AddPeer != nil:
-		return &Event{PeerAdded: &PeerAdded{
-			Peer:    node.AddPeer.Peer,
-			AddedBy: node.Author,
-		}}, nil
-	case node.RemovePeer != nil:
-		return &Event{PeerRemoved: &PeerRemoved{
-			Peer:      node.RemovePeer.Peer,
-			RemovedBy: node.Author,
-		}}, nil
-	case node.Data != nil:
-		wmsg, err := parseMessage(node.Data)
-		if err != nil {
-			return nil, err
-		}
-		contact, err := s.lookupName(tx, persona, node.Author)
-		if err != nil {
-			return nil, err
-		}
-		return &Event{
-			Message: &Message{
-				FromContact: contact,
-				FromPeer:    node.Author,
-				SentAt:      wmsg.SentAt.GoTime(),
-				Type:        wmsg.Type,
-				Headers:     wmsg.Headers,
-				Body:        []byte(wmsg.Body),
-			},
-		}, nil
+	case x.Message != nil:
+	case x.PeerAdded != nil:
+	case x.PeerRemoved != nil:
 	default:
-		panic(node)
+		return nil, errors.New("empty event")
 	}
+	return &y, nil
 }

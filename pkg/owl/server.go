@@ -2,23 +2,25 @@ package owl
 
 import (
 	"context"
-	"database/sql"
-	"errors"
-	"fmt"
+	"io"
 	"sync"
 
 	"github.com/brendoncarroll/go-p2p/p/mbapp"
 	"github.com/brendoncarroll/go-state/cadata"
+	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/inet256/inet256/pkg/inet256"
 	"github.com/inet256/inet256/pkg/p2padapter"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/sha3"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/owlmessenger/owl/pkg/dbutil"
 	"github.com/owlmessenger/owl/pkg/feeds"
 	"github.com/owlmessenger/owl/pkg/owlnet"
+	"github.com/owlmessenger/owl/pkg/p/channel"
+	"github.com/owlmessenger/owl/pkg/p/contactset"
+	"github.com/owlmessenger/owl/pkg/p/directory"
 )
 
 var _ API = &Server{}
@@ -26,31 +28,50 @@ var _ API = &Server{}
 type Server struct {
 	db      *sqlx.DB
 	inet256 inet256.Service
-	log     *logrus.Logger
 
-	initOnce       sync.Once
-	feedController *feedController
-	mu             sync.Mutex
-	nodes          map[inet256.ID]*owlnet.Node
+	initOnce sync.Once
+
+	contactSetCtrl *feedController[contactset.State]
+	directoryCtrl  *feedController[directory.State]
+	channelCtrl    *feedController[channel.State]
+
+	mu    sync.Mutex
+	nodes map[inet256.ID]*owlnet.Node
 
 	eg errgroup.Group
 }
 
 func NewServer(db *sqlx.DB, inet256srv inet256.Service) *Server {
-	log := logrus.StandardLogger()
+	ctx := logctx.WithFmtLogger(context.Background(), logrus.StandardLogger())
 	s := &Server{
 		db:      db,
 		inet256: inet256srv,
-		log:     log,
 
 		nodes: make(map[inet256.ID]*owlnet.Node),
 	}
-	s.feedController = newFeedController(fcParams{
-		log:          log,
-		db:           db,
-		getNode:      s.getNode,
-		handleUpdate: s.handleFeed,
+	s.contactSetCtrl = newFeedController(fcParams[contactset.State]{
+		Context:      ctx,
+		DB:           db,
+		GetNode:      s.getNode,
+		ProtocolName: "contactset@v0",
+		Protocol:     func(store cadata.Store) feeds.Protocol[contactset.State] {
+			s.lis
+			return contactset.NewProtocol(store, ),
+		},
 	})
+	s.directoryCtrl = newFeedController(fcParams[directory.State]{
+		Context:      ctx,
+		DB:           db,
+		GetNode:      s.getNode,
+		ProtocolName: "directory@v0",
+	})
+	s.channelCtrl = newFeedController(fcParams[channel.State]{
+		Context:      ctx,
+		DB:           db,
+		GetNode:      s.getNode,
+		ProtocolName: "channel@v0",
+	})
+
 	return s
 }
 
@@ -78,17 +99,27 @@ func (s *Server) Close() error {
 	return nil
 }
 
-func (s *Server) readLoop(ctx context.Context, n *owlnet.Node) error {
+func (s *Server) readLoop(ctx context.Context, localID PeerID, n *owlnet.Node) error {
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.Go(func() error {
 		return n.BlobPullServer(ctx, &owlnet.BlobPullServer{
-			Open: func(peerID PeerID, feedID owlnet.FeedID) cadata.Getter {
-				storeID, feed, err := s.getFeed(ctx, feedID)
+			Open: func(peerID PeerID, rootID feeds.ID) cadata.Getter {
+				feedID, err := lookupFeed(s.db, localID, rootID)
 				if err != nil {
-					s.log.Error(err)
+					logctx.Errorf(ctx, "%v", err)
 					return nil
 				}
-				if !feed.CanRead(peerID) {
+				allow, err := s.channelCtrl.CanRead(ctx, feedID)
+				if err != nil {
+					logctx.Errorf(ctx, "opening store: %v", err)
+					return nil
+				}
+				if !allow {
+					return nil
+				}
+				storeID, err := lookupFeedStore(s.db, feedID)
+				if err != nil {
+					logctx.Errorf(ctx, "%v", err)
 					return nil
 				}
 				return newStore(s.db, storeID)
@@ -96,25 +127,9 @@ func (s *Server) readLoop(ctx context.Context, n *owlnet.Node) error {
 		})
 	})
 	eg.Go(func() error {
-		return n.FeedsServer(ctx, &owlnet.FeedsServer{
-			Logger: s.log,
-		})
+		return n.FeedsServer(ctx, &owlnet.FeedsServer{})
 	})
 	return eg.Wait()
-}
-
-func (s *Server) getFeed(ctx context.Context, feedID [32]byte) (int, *feeds.Feed, error) {
-	return dbutil.Do2Tx(ctx, s.db, func(tx *sqlx.Tx) (int, *feeds.Feed, error) {
-		storeID, err := lookupFeedStore(tx, feedID)
-		if err != nil {
-			return 0, nil, err
-		}
-		f, err := loadFeed(tx, feedID)
-		if err != nil {
-			return 0, nil, err
-		}
-		return storeID, f, nil
-	})
 }
 
 func (s *Server) getNode(ctx context.Context, id PeerID) (*owlnet.Node, error) {
@@ -131,7 +146,7 @@ func (s *Server) getNode(ctx context.Context, id PeerID) (*owlnet.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	node2 := owlnet.New(mbapp.New(p2padapter.P2PSwarmFromNode(node), 1<<16))
+	node2 := owlnet.New(mbapp.New(p2padapter.SwarmFromNode(node), 1<<16))
 	s.nodes[id] = node2
 	s.eg.Go(func() error {
 		defer func() {
@@ -139,36 +154,18 @@ func (s *Server) getNode(ctx context.Context, id PeerID) (*owlnet.Node, error) {
 			defer s.mu.Unlock()
 			delete(s.nodes, id)
 		}()
-		return s.readLoop(ctx, node2)
+		return s.readLoop(ctx, node.LocalAddr(), node2)
 	})
 	return s.nodes[id], nil
 }
 
-func (s *Server) handleFeed(tx *sqlx.Tx, feed *feeds.Feed, peerID PeerID, store cadata.Store) error {
-	// TODO: check that we have the peerID
-	var chanInt int
-	if err := tx.Get(&chanInt, `SELECT id FROM channels WHERE feed_id = ?`, feed.ID[:]); !errors.Is(err, sql.ErrNoRows) {
-		if err != nil {
-			return err
-		}
-		heads := feed.GetHeads(peerID)
-		if len(heads) != 1 {
-			return nil
-		}
-		head := heads[0]
-		node, err := feeds.GetNode(nil, store, head)
-		if err != nil {
-			return err
-		}
-		return indexChannelNode(tx, chanInt, head, *node)
+func deriveSeed(seed *[32]byte, other string) *[32]byte {
+	var ret [32]byte
+	h := sha3.NewShake256()
+	h.Write(seed[:])
+	h.Write([]byte(other))
+	if _, err := io.ReadFull(h, ret[:]); err != nil {
+		panic(err)
 	}
-	var x int
-	if err := tx.Get(&x, `SELECT 1 FROM persona_contacts WHERE feed_id = ?`, feed.ID[:]); !errors.Is(err, sql.ErrNoRows) {
-		if err != nil {
-			return err
-		}
-		// TODO: do something with the feed, update persona_contacts.last_peer to peerID
-		return nil
-	}
-	return fmt.Errorf("unknown feed %v", feed.ID)
+	return &ret
 }

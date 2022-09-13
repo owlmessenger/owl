@@ -10,12 +10,12 @@ func (e ErrPeerNotInFeed) Error() string {
 	return fmt.Sprintf("peer %v not in feed", e.Peer)
 }
 
-type ErrBadN struct {
+type ErrBadN[T any] struct {
 	Have, Want uint64
-	Node       Node
+	Node       Node[T]
 }
 
-func (e ErrBadN) Error() string {
+func (e ErrBadN[T]) Error() string {
 	return fmt.Sprintf("node has incorrect value of n HAVE: %v WANT: %v", e.Have, e.Want)
 }
 
