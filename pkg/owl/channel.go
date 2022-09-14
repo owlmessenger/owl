@@ -2,6 +2,7 @@ package owl
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"time"
@@ -158,7 +159,10 @@ func (s *Server) Send(ctx context.Context, cid ChannelID, mp MessageParams) erro
 	if err != nil {
 		return err
 	}
-	var msgData []byte = []byte("hello world " + time.Now().String())
+	msgData, err := json.Marshal(string(mp.Body))
+	if err != nil {
+		return err
+	}
 	return ps.modifyChannel(ctx, cid.Name, func(s cadata.Store, x channel.State, author PeerID) (*channel.State, error) {
 		op := channel.New()
 		return op.Append(ctx, s, x, channel.Event{
@@ -222,7 +226,18 @@ func (s *Server) Flush(ctx context.Context, cid ChannelID) error {
 func (s *Server) convertEvent(ctx context.Context, x channel.Event) (*Event, error) {
 	var y Event
 	switch {
+	case x.Origin != nil:
+		return &Event{ChannelCreated: &struct{}{}}, nil
 	case x.Message != nil:
+		var body string
+		if err := json.Unmarshal(x.Message, &body); err != nil {
+			return nil, err
+		}
+		return &Event{
+			Message: &Message{
+				Body: []byte(body),
+			},
+		}, nil
 	case x.PeerAdded != nil:
 	case x.PeerRemoved != nil:
 	default:

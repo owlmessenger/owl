@@ -66,6 +66,7 @@ func TestChannelRW(t *testing.T) {
 	sendMessage(t, s, "A", "chan1", MessageParams{Type: "text", Body: []byte(msgBody)})
 	events := readEvents(t, s, "A", "chan1")
 	require.Len(t, events, 2)
+	require.NotNil(t, events[1].Message)
 	require.Equal(t, msgBody, string(events[1].Message.Body))
 }
 

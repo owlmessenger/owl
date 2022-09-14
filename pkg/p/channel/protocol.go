@@ -22,15 +22,19 @@ func NewProtocol(store cadata.Store) *Protocol {
 }
 
 func (p *Protocol) CanRead(ctx context.Context, x State, peer feeds.PeerID) (bool, error) {
-	panic("not implemented")
+	return true, nil
 }
 
 func (p *Protocol) Validate(ctx context.Context, author feeds.PeerID, prev, next State) error {
-	panic("not implemented")
+	return nil
 }
 
 func (p *Protocol) Merge(ctx context.Context, xs []State) (State, error) {
-	panic("not implemented")
+	y, err := p.op.Merge(ctx, p.store, xs)
+	if err != nil {
+		return State{}, err
+	}
+	return *y, nil
 }
 
 func (p *Protocol) ListPeers(ctx context.Context, x State) ([]feeds.PeerID, error) {

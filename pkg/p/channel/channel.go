@@ -8,6 +8,7 @@ import (
 
 	"github.com/brendoncarroll/go-state"
 	"github.com/brendoncarroll/go-state/cadata"
+	"github.com/brendoncarroll/go-tai64"
 	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/owlmessenger/owl/pkg/feeds"
 	"github.com/owlmessenger/owl/pkg/memberset"
@@ -18,7 +19,7 @@ import (
 type State struct {
 	Members memberset.State `json:"members"`
 	// TODO: use copy on write data structure with efficient appends
-	Events []Pair `json:"messages"`
+	Events []Pair `json:"events"`
 }
 
 type Feed feeds.Feed[State]
@@ -39,7 +40,16 @@ func (o *Operator) NewEmpty(ctx context.Context, s cadata.Store, peers []feeds.P
 	if err != nil {
 		return nil, err
 	}
-	return &State{Members: *memberRoot, Events: nil}, nil
+	events := []Pair{
+		{
+			ID: EventID{0},
+			Event: Event{
+				Timestamp: tai64.Now(),
+				Origin:    &struct{}{},
+			},
+		},
+	}
+	return &State{Members: *memberRoot, Events: events}, nil
 }
 
 func (o *Operator) membApply(ctx context.Context, s cadata.Store, x State, fn func(memberset.State) (*memberset.State, error)) (*State, error) {
@@ -165,9 +175,8 @@ func (o *Operator) mergeMsg(ctx context.Context, s cadata.Store, xs [][]Pair) ([
 		for i := range merged {
 			merged[i].ID = EventID{uint64(i)}
 		}
+		return merged, nil
 
-		// Diff the two roots, find the last common message.
-		panic("")
 	default:
 		l := len(xs)
 		left, err := o.mergeMsg(ctx, s, xs[:l/2])

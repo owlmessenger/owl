@@ -24,9 +24,10 @@ type Event struct {
 	From      feeds.PeerID `json:"from"`
 	Timestamp tai64.TAI64N `json:"ts"`
 
-	Message     json.RawMessage `json:"msg,omitempty"`
+	Origin      *struct{}       `json:"origin,omitempty"`
 	PeerAdded   *feeds.PeerID   `json:"peer_add,omitempty"`
 	PeerRemoved *feeds.PeerID   `json:"peer_remove,omitempty"`
+	Message     json.RawMessage `json:"msg,omitempty"`
 }
 
 // Pair is an (ID, Event) pair

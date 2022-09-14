@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/blobcache/glfs"
 	"github.com/brendoncarroll/go-state"
 	"github.com/inet256/inet256/pkg/inet256"
 
@@ -186,11 +185,9 @@ type Message struct {
 
 // MessageParams are used to create a message
 type MessageParams struct {
-	Type        string
-	Headers     map[string]string
-	Body        []byte
-	Parent      EventPath
-	Attachments map[string]glfs.Ref
+	Type   string
+	Parent EventPath
+	Body   []byte
 }
 
 // Text creates parameters for a simple text message

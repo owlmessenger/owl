@@ -289,6 +289,16 @@ func saveFeed[T any](tx *sqlx.Tx, feedID int, x feeds.State[T]) error {
 }
 
 // lookupFeed returns the feed for a persona
-func lookupFeed(tx dbutil.Reader, personaID int, rootID feeds.ID) (int, error) {
-	panic("not implemented")
+func lookupFeed(tx dbutil.Reader, personaID int, rootID feeds.ID) (ret int, _ error) {
+	err := tx.Get(&ret, `SELECT id FROM feeds
+		WHERE root = ?
+		AND id IN (
+			SELECT feed_id FROM persona_channels WHERE persona_id = ?
+			UNION
+			SELECT contactset_feed FROM personas WHERE id = ?
+			UNION
+			SELECT directory_feed FROM personas WHERE id = ?
+		)
+	`, rootID, personaID, personaID, personaID)
+	return ret, err
 }
