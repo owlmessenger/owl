@@ -166,9 +166,9 @@ func (s *Server) Send(ctx context.Context, cid ChannelID, mp MessageParams) erro
 	return ps.modifyChannel(ctx, cid.Name, func(s cadata.Store, x channel.State, author PeerID) (*channel.State, error) {
 		op := channel.New()
 		return op.Append(ctx, s, x, channel.Event{
-			From:      author,
+			Author:    author,
 			Timestamp: tai64.FromGoTime(time.Now()),
-			Message:   msgData,
+			Data:      msgData,
 		})
 	})
 }
@@ -189,9 +189,8 @@ func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit
 		return nil, err
 	}
 	op := channel.New()
-	span := state.TotalSpan[channel.EventID]().WithLowerExcl(channel.EventID(begin))
 	buf := make([]channel.Pair, 128)
-	n, err := op.Read(ctx, store, *x, span, buf)
+	n, err := op.Read(ctx, store, *x, channel.Path(begin), buf)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +201,7 @@ func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit
 			return nil, err
 		}
 		ret = append(ret, Pair{
-			Path:  EventPath(x.ID),
+			Path:  EventPath(x.Path),
 			Event: y,
 		})
 	}
@@ -224,24 +223,25 @@ func (s *Server) Flush(ctx context.Context, cid ChannelID) error {
 }
 
 func (s *Server) convertEvent(ctx context.Context, x channel.Event) (*Event, error) {
-	var y Event
-	switch {
-	case x.Origin != nil:
-		return &Event{ChannelCreated: &struct{}{}}, nil
-	case x.Message != nil:
-		var body string
-		if err := json.Unmarshal(x.Message, &body); err != nil {
-			return nil, err
-		}
-		return &Event{
-			Message: &Message{
-				Body: []byte(body),
-			},
-		}, nil
-	case x.PeerAdded != nil:
-	case x.PeerRemoved != nil:
-	default:
-		return nil, errors.New("empty event")
-	}
-	return &y, nil
+	return &Event{}, nil
+	// var y Event
+	// switch {
+	// case x.Origin != nil:
+	// 	return &Event{ChannelCreated: &struct{}{}}, nil
+	// case x.Message != nil:
+	// 	var body string
+	// 	if err := json.Unmarshal(x.Message, &body); err != nil {
+	// 		return nil, err
+	// 	}
+	// 	return &Event{
+	// 		Message: &Message{
+	// 			Body: []byte(body),
+	// 		},
+	// 	}, nil
+	// case x.PeerAdded != nil:
+	// case x.PeerRemoved != nil:
+	// default:
+	// 	return nil, errors.New("empty event")
+	// }
+	// return &y, nil
 }

@@ -94,7 +94,7 @@ type ChannelInfo struct {
 // EventPath identifies an event within a channel
 // EventPaths will always have a length > 0.
 // If the length is > 1, then all but the last element are considered the ThreadID
-type EventPath channel.EventID
+type EventPath channel.Path
 
 func ParseEventPath(data []byte) (EventPath, error) {
 	if len(data) < 8 || len(data)%8 != 0 {
