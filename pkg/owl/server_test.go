@@ -100,9 +100,9 @@ func createPersona(t testing.TB, x API, name string) {
 	require.NoError(t, err)
 }
 
-func joinPersona(t testing.TB, x API, name string) {
+func joinPersona(t testing.TB, x API, name string, peers []PeerID) {
 	ctx := context.Background()
-	err := x.CreatePersona(ctx, name)
+	err := x.JoinPersona(ctx, name, peers)
 	require.NoError(t, err)
 }
 
@@ -123,7 +123,7 @@ func getPersona(t testing.TB, x API, name string) *Persona {
 func createContact(t testing.TB, x API, persona, name string, peerID PeerID) {
 	ctx := context.Background()
 	err := x.CreateContact(ctx, persona, name, Contact{
-		Addrs: []PeerID{},
+		Addrs: []PeerID{peerID},
 	})
 	require.NoError(t, err)
 }

@@ -124,7 +124,7 @@ func (f *Feed[T]) Modify(ctx context.Context, actor PeerID, fn func(prev []Ref, 
 	if err := f.protocol.Validate(ctx, actor, prevState, *nextState); err != nil {
 		return err
 	}
-	y, err := Modify(ctx, f.store, f.state, actor, *nextState)
+	y, err := modify(ctx, f.store, f.state, actor, *nextState)
 	if err != nil {
 		return err
 	}

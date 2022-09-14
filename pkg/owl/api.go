@@ -20,6 +20,7 @@ import (
 	"github.com/owlmessenger/owl/pkg/p/channel"
 )
 
+// PeerID uniquely identifies peers on the network.
 type PeerID = owlnet.PeerID
 
 // A Persona is a collection of inet256.IDs
@@ -210,6 +211,8 @@ type Pair struct {
 type ChannelAPI interface {
 	// CreateChannel creates a new channel with name
 	CreateChannel(ctx context.Context, cid ChannelID, members []string) error
+	// JoinChannel joins an existing channel
+	JoinChannel(ctx context.Context, cid ChannelID, root feeds.ID) error
 	// DeleteChannel deletes the channel with name if it exists
 	DeleteChannel(ctx context.Context, cid ChannelID) error
 	// ListChannels lists channels starting with begin

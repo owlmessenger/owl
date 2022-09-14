@@ -83,22 +83,21 @@ func askJSON(ctx context.Context, asker p2p.Asker[inet256.ID], dst inet256.ID, r
 }
 
 func serveJSON[In, Out any](ctx context.Context, asker p2p.Asker[inet256.ID], fn func(In) (*Out, error)) error {
-	respData := make([]byte, 1<<16)
-	var in In
-	if err := json.Unmarshal(respData, &in); err != nil {
-		return err
-	}
-	out, err := fn(in)
-	if err != nil {
-		return err
-	}
-	data, err := json.Marshal(out)
-	if err != nil {
-		return err
-	}
-	// TODO
-	panic(data)
-	return nil
+	return asker.ServeAsk(ctx, func(ctx context.Context, resp []byte, req p2p.Message[inet256.Addr]) int {
+		var in In
+		if err := json.Unmarshal(req.Payload, &in); err != nil {
+			return -1
+		}
+		out, err := fn(in)
+		if err != nil {
+			return -1
+		}
+		data, err := json.Marshal(out)
+		if err != nil {
+			return -1
+		}
+		return copy(resp, data)
+	})
 }
 
 type WireError struct {

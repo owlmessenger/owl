@@ -5,22 +5,16 @@ import (
 	"io"
 	"sync"
 
-	"github.com/brendoncarroll/go-p2p/p/mbapp"
-	"github.com/brendoncarroll/go-state/cadata"
-	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/inet256/inet256/pkg/inet256"
-	"github.com/inet256/inet256/pkg/p2padapter"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/sha3"
-	"golang.org/x/sync/errgroup"
+)
 
-	"github.com/owlmessenger/owl/pkg/feeds"
-	"github.com/owlmessenger/owl/pkg/owlnet"
-	"github.com/owlmessenger/owl/pkg/p/channel"
-	"github.com/owlmessenger/owl/pkg/p/contactset"
-	"github.com/owlmessenger/owl/pkg/p/directory"
+const (
+	contactSetProto = "contactset@v0"
+	directoryProto  = "directory@v0"
+	channelProto    = "channel@v0"
 )
 
 var _ API = &Server{}
@@ -30,48 +24,16 @@ type Server struct {
 	inet256 inet256.Service
 
 	initOnce sync.Once
-
-	contactSetCtrl *feedController[contactset.State]
-	directoryCtrl  *feedController[directory.State]
-	channelCtrl    *feedController[channel.State]
-
-	mu    sync.Mutex
-	nodes map[inet256.ID]*owlnet.Node
-
-	eg errgroup.Group
+	mu       sync.Mutex
+	personas map[int]*personaServer
 }
 
 func NewServer(db *sqlx.DB, inet256srv inet256.Service) *Server {
-	ctx := logctx.WithFmtLogger(context.Background(), logrus.StandardLogger())
 	s := &Server{
-		db:      db,
-		inet256: inet256srv,
-
-		nodes: make(map[inet256.ID]*owlnet.Node),
+		db:       db,
+		inet256:  inet256srv,
+		personas: make(map[int]*personaServer),
 	}
-	s.contactSetCtrl = newFeedController(fcParams[contactset.State]{
-		Context:      ctx,
-		DB:           db,
-		GetNode:      s.getNode,
-		ProtocolName: "contactset@v0",
-		Protocol:     func(store cadata.Store) feeds.Protocol[contactset.State] {
-			s.lis
-			return contactset.NewProtocol(store, ),
-		},
-	})
-	s.directoryCtrl = newFeedController(fcParams[directory.State]{
-		Context:      ctx,
-		DB:           db,
-		GetNode:      s.getNode,
-		ProtocolName: "directory@v0",
-	})
-	s.channelCtrl = newFeedController(fcParams[channel.State]{
-		Context:      ctx,
-		DB:           db,
-		GetNode:      s.getNode,
-		ProtocolName: "channel@v0",
-	})
-
 	return s
 }
 
@@ -89,74 +51,29 @@ func (s *Server) Init(ctx context.Context) (err error) {
 
 func (s *Server) Close() error {
 	s.mu.Lock()
-	for _, node := range s.nodes {
-		node.Close()
+	for _, ps := range s.personas {
+		ps.Close()
 	}
 	s.mu.Unlock()
-
-	s.eg.Wait()
 	s.db.Close()
 	return nil
 }
 
-func (s *Server) readLoop(ctx context.Context, localID PeerID, n *owlnet.Node) error {
-	eg, ctx := errgroup.WithContext(ctx)
-	eg.Go(func() error {
-		return n.BlobPullServer(ctx, &owlnet.BlobPullServer{
-			Open: func(peerID PeerID, rootID feeds.ID) cadata.Getter {
-				feedID, err := lookupFeed(s.db, localID, rootID)
-				if err != nil {
-					logctx.Errorf(ctx, "%v", err)
-					return nil
-				}
-				allow, err := s.channelCtrl.CanRead(ctx, feedID)
-				if err != nil {
-					logctx.Errorf(ctx, "opening store: %v", err)
-					return nil
-				}
-				if !allow {
-					return nil
-				}
-				storeID, err := lookupFeedStore(s.db, feedID)
-				if err != nil {
-					logctx.Errorf(ctx, "%v", err)
-					return nil
-				}
-				return newStore(s.db, storeID)
-			},
-		})
-	})
-	eg.Go(func() error {
-		return n.FeedsServer(ctx, &owlnet.FeedsServer{})
-	})
-	return eg.Wait()
-}
-
-func (s *Server) getNode(ctx context.Context, id PeerID) (*owlnet.Node, error) {
+func (s *Server) getPersonaServer(ctx context.Context, name string) (*personaServer, error) {
+	id, err := s.lookupPersona(s.db, name)
+	if err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if node, exists := s.nodes[id]; exists {
-		return node, nil
+	if _, exists := s.personas[id]; !exists {
+		members, err := getPersonaMembers(s.db, id)
+		if err != nil {
+			return nil, err
+		}
+		s.personas[id] = newPersonaServer(s.db, s.inet256, id, members)
 	}
-	privateKey, err := s.getPrivateKey(s.db, id)
-	if err != nil {
-		return nil, err
-	}
-	node, err := s.inet256.Open(ctx, privateKey)
-	if err != nil {
-		return nil, err
-	}
-	node2 := owlnet.New(mbapp.New(p2padapter.SwarmFromNode(node), 1<<16))
-	s.nodes[id] = node2
-	s.eg.Go(func() error {
-		defer func() {
-			s.mu.Lock()
-			defer s.mu.Unlock()
-			delete(s.nodes, id)
-		}()
-		return s.readLoop(ctx, node.LocalAddr(), node2)
-	})
-	return s.nodes[id], nil
+	return s.personas[id], nil
 }
 
 func deriveSeed(seed *[32]byte, other string) *[32]byte {

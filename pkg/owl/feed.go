@@ -3,7 +3,6 @@ package owl
 import (
 	"context"
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -19,20 +18,18 @@ import (
 )
 
 type fcParams[T any] struct {
-	Context     context.Context
-	DB          *sqlx.DB
-	GetNode     func(context.Context, PeerID) (*owlnet.Node, error)
-	GetProtocol func(ctx context.Context, persona string) (feeds.Protocol[T], error)
-
+	Context      context.Context
+	DB           *sqlx.DB
+	GetNode      func(context.Context, PeerID) (*owlnet.Node, error)
+	GetProtocol  func(s cadata.Store) feeds.Protocol[T]
 	ProtocolName string
-	NewProtocol  func(s cadata.Store) feeds.Protocol[T]
 }
 
 type feedController[T any] struct {
 	db           *sqlx.DB
 	getNode      func(context.Context, PeerID) (*owlnet.Node, error)
 	protocolName string
-	getProtocol  func(ctx context.Context, persona string) (feeds.Protocol[T], error)
+	getProtocol  func(s cadata.Store) feeds.Protocol[T]
 
 	cf   context.CancelFunc
 	eg   errgroup.Group
@@ -61,58 +58,20 @@ func (fc *feedController[T]) run(ctx context.Context) error {
 	return nil
 }
 
-func (fc *feedController[T]) Create(ctx context.Context, fn func(s cadata.Store) (*T, error)) (int, error) {
-	seed := new([32]byte)
-	if _, err := io.ReadFull(rand.Reader, seed[:]); err != nil {
-		return 0, err
-	}
-	return dbutil.DoTx1(ctx, fc.db, func(tx *sqlx.Tx) (int, error) {
-		storeID, err := createStore(tx)
-		if err != nil {
-			return 0, err
-		}
-		s := newTxStore(tx, storeID)
-		state, err := fn(s)
-		if err != nil {
-			return 0, err
-		}
-		protocol, err := fc.getProtocol(ctx)
-		feed, err := feeds.NewInit(ctx, fc.newProtocol(s), s, *state)
-		if err != nil {
-			return 0, err
-		}
-		rootID := feed.GetRoot()
-		fstate := feed.GetState()
-		return createFeed(tx, fc.protocolName, rootID, fstate, storeID)
-	})
-}
-
-func (fc *feedController[T]) Delete(ctx context.Context, feedID int) error {
-	return dbutil.DoTx(ctx, fc.db, func(tx *sqlx.Tx) error {
-		return deleteFeed(tx, feedID)
-	})
-}
-
 func (fc *feedController[T]) Join(ctx context.Context, root feeds.ID) (int, error) {
 	return 0, nil
 }
 
 func (fc *feedController[T]) Modify(ctx context.Context, feedID int, author PeerID, fn func(feed *feeds.Feed[T], s cadata.Store) error) error {
 	if err := dbutil.DoTx(ctx, fc.db, func(tx *sqlx.Tx) error {
-		state, err := loadFeed[T](tx, feedID)
-		if err != nil {
-			return err
-		}
-		storeID, err := lookupFeedStore(tx, feedID)
-		if err != nil {
-			return err
-		}
-		store := newTxStore(tx, storeID)
-		feed := feeds.New(fc.newProtocol(store), *state, store)
-		if err := fn(feed, store); err != nil {
-			return err
-		}
-		return saveFeed(tx, feedID, feed.GetState())
+		return modifyFeed(tx, feedID, author, func(x feeds.State[T], sf, s0 cadata.Store) (*feeds.State[T], error) {
+			feed := feeds.New(fc.getProtocol(s0), x, sf)
+			if err := fn(feed, s0); err != nil {
+				return nil, err
+			}
+			y := feed.GetState()
+			return &y, nil
+		})
 	}); err != nil {
 		return err
 	}
@@ -120,17 +79,7 @@ func (fc *feedController[T]) Modify(ctx context.Context, feedID int, author Peer
 }
 
 func (fc *feedController[T]) View(ctx context.Context, feedID int) (*T, cadata.Store, error) {
-	return dbutil.DoTx2(ctx, fc.db, func(tx *sqlx.Tx) (*T, cadata.Store, error) {
-		fstate, err := loadFeed[T](tx, feedID)
-		if err != nil {
-			return nil, nil, err
-		}
-		sid, err := lookupFeedStore(tx, feedID)
-		if err != nil {
-			return nil, nil, err
-		}
-		return &fstate.State, newStore(fc.db, sid), nil
-	})
+	return viewFeed[T](fc.db, feedID)
 }
 
 func (fc *feedController[T]) Broadcast(ctx context.Context, sender PeerID, feedID int) error {
@@ -180,30 +129,31 @@ func (fc *feedController[T]) handlePush(ctx context.Context, src, dst owlnet.Pee
 }
 
 func (fc *feedController[T]) handleGet(ctx context.Context, src, dst owlnet.PeerID, rootID owlnet.FeedID) ([]feeds.Ref, error) {
-	return dbutil.DoTx1(ctx, fc.db, func(tx *sqlx.Tx) ([]feeds.Ref, error) {
-		feedID, err := lookupFeed(tx, dst, rootID)
-		if err != nil {
-			return nil, err
-		}
-		storeID, err := lookupFeedStore(tx, feedID)
-		if err != nil {
-			return nil, err
-		}
-		state, err := loadFeed[T](tx, feedID)
-		if err != nil {
-			return nil, err
-		}
-		store := newTxStore(tx, storeID)
-		feed := feeds.New(fc.newProtocol(store), *state, store)
-		yes, err := feed.CanRead(ctx, src)
-		if err != nil {
-			return nil, err
-		}
-		if !yes {
-			return nil, errors.New("peer is not a member of feed")
-		}
-		return feed.GetHeads(), nil
-	})
+	return nil, nil
+	// return dbutil.DoTx1(ctx, fc.db, func(tx *sqlx.Tx) ([]feeds.Ref, error) {
+	// 	feedID, err := lookupFeed(tx, dst, rootID)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	storeID, err := lookupFeedStore(tx, feedID)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	state, err := loadFeed[T](tx, feedID)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	store := newTxStore(tx, storeID)
+	// 	feed := feeds.New(fc.getProtocol(store), *state, store)
+	// 	yes, err := feed.CanRead(ctx, src)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	if !yes {
+	// 		return nil, errors.New("peer is not a member of feed")
+	// 	}
+	// 	return feed.GetHeads(), nil
+	// })
 }
 
 func (fc *feedController[T]) listFeeds(ctx context.Context) (ret []owlnet.FeedID, err error) {
@@ -239,8 +189,32 @@ func (fc *feedController[T]) notify(heads []feeds.Ref) {
 	}
 }
 
-// createFeed creates a feed and the store for the feed
-func createFeed[T any](tx *sqlx.Tx, protocol string, rootID feeds.ID, state feeds.State[T], storeID int) (int, error) {
+// createFeed creates a new feed by calling fn with a new store.
+// fn should return the initial state for the feed, possibly referencing objects in s.
+func createFeed[T any](tx *sqlx.Tx, protocol string, fn func(cadata.Store) (*T, error)) (int, error) {
+	ctx := context.Background()
+	seed := new([32]byte)
+	if _, err := io.ReadFull(rand.Reader, seed[:]); err != nil {
+		return 0, err
+	}
+	storeID, err := createStore(tx)
+	if err != nil {
+		return 0, err
+	}
+	s := newTxStore(tx, storeID)
+	x, err := fn(s)
+	if err != nil {
+		return 0, err
+	}
+	fstate, err := feeds.InitialState(ctx, s, *x, seed)
+	if err != nil {
+		return 0, err
+	}
+	return insertFeed(tx, protocol, fstate.ID, *fstate, storeID)
+}
+
+// insertFeed inserts a feed and the store for the feed
+func insertFeed[T any](tx *sqlx.Tx, protocol string, rootID feeds.ID, state feeds.State[T], storeID int) (int, error) {
 	stateData := state.Marshal()
 	var feedID int
 	err := tx.Get(&feedID, `INSERT INTO feeds (protocol, root, state, store_id) VALUES (?, ?, ?, ?) RETURNING id`, protocol, rootID, stateData, storeID)
@@ -261,6 +235,36 @@ func deleteFeed(tx *sqlx.Tx, feedID int) error {
 	return err
 }
 
+// modifyFeed updates a feed's state by calling fn.
+func modifyFeed[T any](tx *sqlx.Tx, feedID int, author PeerID, fn func(x feeds.State[T], sf, s0 cadata.Store) (*feeds.State[T], error)) error {
+	x, err := loadFeed[T](tx, feedID)
+	if err != nil {
+		return err
+	}
+	storeID, err := lookupFeedStore(tx, feedID)
+	if err != nil {
+		return err
+	}
+	store := newTxStore(tx, storeID)
+	y, err := fn(*x, store, store)
+	if err != nil {
+		return err
+	}
+	return saveFeed(tx, feedID, *y)
+}
+
+func viewFeed[T any](db *sqlx.DB, feedID int) (*T, cadata.Store, error) {
+	fstate, err := loadFeed[T](db, feedID)
+	if err != nil {
+		return nil, nil, err
+	}
+	sid, err := lookupFeedStore(db, feedID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &fstate.State, newStore(db, sid), nil
+}
+
 func lookupFeedStore(tx dbutil.Reader, feedID int) (int, error) {
 	var x int
 	err := tx.Get(&x, `SELECT store_id FROM feeds WHERE id = ?`, feedID)
@@ -268,7 +272,7 @@ func lookupFeedStore(tx dbutil.Reader, feedID int) (int, error) {
 }
 
 // loadFeed retrieves the feed state for feedID and returns it to the database.
-func loadFeed[T any](tx *sqlx.Tx, feedID int) (*feeds.State[T], error) {
+func loadFeed[T any](tx dbutil.Reader, feedID int) (*feeds.State[T], error) {
 	var data []byte
 	if err := tx.Get(&data, `SELECT state FROM feeds WHERE id = ? `, feedID); err != nil {
 		return nil, err
@@ -284,6 +288,7 @@ func saveFeed[T any](tx *sqlx.Tx, feedID int, x feeds.State[T]) error {
 	return nil
 }
 
-func lookupFeed(tx dbutil.Reader, dst PeerID, rootID feeds.ID) (int, error) {
+// lookupFeed returns the feed for a persona
+func lookupFeed(tx dbutil.Reader, personaID int, rootID feeds.ID) (int, error) {
 	panic("not implemented")
 }

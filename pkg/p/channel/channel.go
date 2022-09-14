@@ -27,9 +27,9 @@ type Operator struct {
 	members memberset.Operator
 }
 
-func New() *Operator {
+func New() Operator {
 	kvop := gotkv.NewOperator(1<<12, 1<<16)
-	return &Operator{
+	return Operator{
 		members: memberset.New(&kvop),
 	}
 }

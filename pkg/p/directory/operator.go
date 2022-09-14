@@ -8,6 +8,7 @@ import (
 	"github.com/brendoncarroll/go-state"
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv"
+	"github.com/gotvc/got/pkg/gotkv/kvstreams"
 	"github.com/owlmessenger/owl/pkg/feeds"
 )
 
@@ -76,4 +77,26 @@ func (o *Operator) List(ctx context.Context, s cadata.Store, x State, span state
 		return nil, err
 	}
 	return ret, nil
+}
+
+func (o *Operator) Merge(ctx context.Context, s cadata.Store, xs []State) (State, error) {
+	var zero State
+	var its []kvstreams.Iterator
+	for _, x := range xs {
+		its = append(its, o.gotkv.NewIterator(s, x, gotkv.TotalSpan()))
+	}
+	m := kvstreams.NewMerger(s, its)
+	b := o.gotkv.NewBuilder(s)
+	if err := gotkv.CopyAll(ctx, b, m); err != nil {
+		return zero, err
+	}
+	y, err := b.Finish(ctx)
+	if err != nil {
+		return zero, err
+	}
+	return *y, nil
+}
+
+func (o *Operator) Validate(ctx context.Context, s cadata.Store, author feeds.PeerID, prev, next State) error {
+	return nil
 }

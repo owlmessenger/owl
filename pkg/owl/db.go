@@ -32,8 +32,8 @@ var desiredState = migrations.InitialState().
 		id INTEGER NOT NULL,
 		root BLOB NOT NULL,
 		protocol TEXT NOT NULL,
-		store_id INTEGER NOT NULL,
 		state BLOB NOT NULL,
+		store_id INTEGER NOT NULL,
 		FOREIGN KEY(store_id) REFERENCES stores(id),
 		PRIMARY KEY(id)
 	);`).
@@ -48,7 +48,15 @@ var desiredState = migrations.InitialState().
 		persona_id INTEGER NOT NULL,
 		id BLOB NOT NULL,
 		public_key BLOB NOT NULL,
-		private_key BLOB,
+		private_key BLOB NOT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY(persona_id) REFERENCES personas(id),
+		PRIMARY KEY(persona_id, id)
+	);`).
+	ApplyStmt(`CREATE TABLE persona_peers (
+		persona_id INTEGER NOT NULL,
+		id BLOB NOT NULL,
+		public_key BLOB,
 		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY(persona_id) REFERENCES personas(id),
 		PRIMARY KEY(persona_id, id)

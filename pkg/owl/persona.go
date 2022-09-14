@@ -2,8 +2,8 @@ package owl
 
 import (
 	"context"
-	"crypto"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/x509"
 
 	"github.com/brendoncarroll/go-state/cadata"
@@ -19,26 +19,27 @@ func (s *Server) CreatePersona(ctx context.Context, name string) error {
 	if err := s.Init(ctx); err != nil {
 		return err
 	}
-	_, privKey, err := ed25519.GenerateKey(nil)
+	_, privKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return err
 	}
 	pubKey := privKey.Public()
-	csFeed, err := s.contactSetCtrl.Create(ctx, func(s cadata.Store) (*contactset.State, error) {
-		op := contactset.New()
-		return op.New(ctx, s)
-	})
-	if err != nil {
-		return err
-	}
-	dirFeed, err := s.directoryCtrl.Create(ctx, func(s cadata.Store) (*directory.State, error) {
-		op := directory.New()
-		return op.New(ctx, s)
-	})
-	if err != nil {
-		return err
-	}
+
 	return dbutil.DoTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		csFeed, err := createFeed(tx, contactSetProto, func(s cadata.Store) (*contactset.State, error) {
+			op := contactset.New()
+			return op.New(ctx, s)
+		})
+		if err != nil {
+			return err
+		}
+		dirFeed, err := createFeed(tx, directoryProto, func(s cadata.Store) (*directory.State, error) {
+			op := directory.New()
+			return op.New(ctx, s)
+		})
+		if err != nil {
+			return err
+		}
 		personaID, err := s.createPersona(tx, name, csFeed, dirFeed)
 		if err != nil {
 			return err
@@ -135,11 +136,12 @@ func (s *Server) AddPrivateKey(ctx context.Context, name string, privateKey inet
 
 // GetLocalPeer returns a PeerID to use for communication
 func (s *Server) GetLocalPeer(ctx context.Context, persona string) (*PeerID, error) {
-	id, err := s.getLocalPeer(s.db, persona)
+	ps, err := s.getPersonaServer(ctx, persona)
 	if err != nil {
 		return nil, err
 	}
-	return &id, nil
+	id, err := ps.getLocalPeer(ctx)
+	return &id, err
 }
 
 // createPersona inserts into the personas table
@@ -148,27 +150,6 @@ func (s *Server) createPersona(tx *sqlx.Tx, name string, contactSetFeed, dirFeed
 	err := tx.Get(&personaID, `INSERT INTO personas (name, contactset_feed, directory_feed)
 		VALUES (?, ?, ?) RETURNING id`, name, contactSetFeed, dirFeed)
 	return personaID, err
-}
-
-func (s *Server) getLocalPeer(tx dbutil.Reader, persona string) (PeerID, error) {
-	var x []byte
-	err := tx.Get(&x, `SELECT persona_keys.id as id FROM persona_keys
-		JOIN personas on personas.id = persona_keys.persona_id
-		WHERE personas.name = ?
-	`, persona)
-	return inet256.AddrFromBytes(x), err
-}
-
-func (s *Server) getPrivateKey(tx dbutil.Reader, localID PeerID) (inet256.PrivateKey, error) {
-	var privKeyData []byte
-	if err := tx.Get(&privKeyData, `SELECT private_key FROM persona_keys WHERE id = ?`, localID[:]); err != nil {
-		return nil, err
-	}
-	privateKey, err := x509.ParsePKCS8PrivateKey(privKeyData)
-	if err != nil {
-		return nil, err
-	}
-	return privateKey.(crypto.Signer), nil
 }
 
 func (s *Server) lookupPersona(tx dbutil.Reader, name string) (int, error) {
@@ -189,4 +170,15 @@ func (s *Server) addPrivateKey(tx *sqlx.Tx, personaID int, pubKey inet256.Public
 	}
 	_, err = tx.Exec(`INSERT INTO persona_keys (persona_id, id, public_key, private_key) VALUES (?, ?, ?, ?)`, personaID, id[:], pubKeyData, privKeyData)
 	return err
+}
+
+func getPersonaMembers(tx dbutil.Reader, id int) (ret []PeerID, _ error) {
+	var rows [][]byte
+	if err := tx.Select(&rows, `SELECT id FROM persona_keys WHERE persona_id = ?`, id); err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		ret = append(ret, inet256.AddrFromBytes(row))
+	}
+	return ret, nil
 }

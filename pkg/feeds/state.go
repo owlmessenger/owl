@@ -60,9 +60,7 @@ func InitialState[T any](ctx context.Context, s cadata.Store, x T, salt *[32]byt
 	}, nil
 }
 
-// Modify creates a state transition after prev.
-// Modify will create a node, post it to s, and return the new state.
-func Modify[T any](ctx context.Context, s cadata.Store, prev State[T], author PeerID, desired T) (*State[T], error) {
+func modify[T any](ctx context.Context, s cadata.Store, prev State[T], author PeerID, desired T) (*State[T], error) {
 	prevNodes, err := getAllNodes[T](ctx, s, prev.Heads)
 	if err != nil {
 		return nil, err
@@ -88,7 +86,7 @@ func Modify[T any](ctx context.Context, s cadata.Store, prev State[T], author Pe
 
 		Max:   node.N,
 		Min:   minN,
-		State: prev.State,
+		State: desired,
 		PeerN: peern,
 	}, nil
 }
