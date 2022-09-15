@@ -213,7 +213,7 @@ func createFeed[T any](tx *sqlx.Tx, protocol string, fn func(cadata.Store) (*T, 
 	return insertFeed(tx, protocol, fstate.ID, *fstate, storeID)
 }
 
-// insertFeed inserts a feed and the store for the feed
+// insertFeed inserts a single row in the feeds table
 func insertFeed[T any](tx *sqlx.Tx, protocol string, rootID feeds.ID, state feeds.State[T], storeID int) (int, error) {
 	stateData := state.Marshal()
 	var feedID int
@@ -265,12 +265,6 @@ func viewFeed[T any](db *sqlx.DB, feedID int) (*T, cadata.Store, error) {
 	return &fstate.State, newStore(db, sid), nil
 }
 
-func lookupFeedStore(tx dbutil.Reader, feedID int) (int, error) {
-	var x int
-	err := tx.Get(&x, `SELECT store_id FROM feeds WHERE id = ?`, feedID)
-	return x, err
-}
-
 // loadFeed retrieves the feed state for feedID and returns it to the database.
 func loadFeed[T any](tx dbutil.Reader, feedID int) (*feeds.State[T], error) {
 	var data []byte
@@ -286,6 +280,12 @@ func saveFeed[T any](tx *sqlx.Tx, feedID int, x feeds.State[T]) error {
 		return err
 	}
 	return nil
+}
+
+func lookupFeedStore(tx dbutil.Reader, feedID int) (int, error) {
+	var x int
+	err := tx.Get(&x, `SELECT store_id FROM feeds WHERE id = ?`, feedID)
+	return x, err
 }
 
 // lookupFeed returns the feed for a persona

@@ -9,12 +9,13 @@ import (
 
 	"github.com/brendoncarroll/go-state"
 	"github.com/brendoncarroll/go-state/cadata"
+	"github.com/brendoncarroll/go-tai64"
 	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/owlmessenger/owl/pkg/feeds"
 	"github.com/owlmessenger/owl/pkg/heap"
 )
 
-const MaxMessageLen = 4096
+const MaxEntryLen = 4096
 
 type (
 	Root   = gotkv.Root
@@ -39,7 +40,13 @@ func (o *Operator) NewEmpty(ctx context.Context, s cadata.Store) (*Root, error) 
 	return o.gotkv.NewEmpty(ctx, s)
 }
 
-func (o *Operator) Append(ctx context.Context, s cadata.Store, x Root, thread Path, evs []Event) (*Root, error) {
+type EntryParams struct {
+	Author    feeds.PeerID
+	Data      json.RawMessage
+	Timestamp tai64.TAI64N
+}
+
+func (o *Operator) Append(ctx context.Context, s cadata.Store, x Root, thread Path, es []EntryParams) (*Root, error) {
 	if len(thread) > 0 {
 		panic("threads not supported")
 	}
@@ -49,29 +56,37 @@ func (o *Operator) Append(ctx context.Context, s cadata.Store, x Root, thread Pa
 	}
 	var p Path
 	var rev uint32
-	if ent == nil {
-		p = Path{0}
-	} else {
-		p, rev, err = parseEventKey(ent.Key)
+	var after []cadata.ID
+	if ent != nil {
+		p, rev, err = parseEntryKey(ent.Key)
 		if err != nil {
 			return nil, err
 		}
-		p = p.Successor()
+		e, err := parseEntry(ent.Value)
+		if err != nil {
+			return nil, err
+		}
+		after = append(after, e.ID())
 	}
 	b := o.gotkv.NewBuilder(s)
 	if err := gotkv.CopyAll(ctx, b, o.gotkv.NewIterator(s, x, gotkv.TotalSpan())); err != nil {
 		return nil, err
 	}
-	for _, ev := range evs {
-		if err := putEvent(ctx, b, p, rev, ev); err != nil {
+	for _, e := range es {
+		p = p.Successor()
+		if err := putEntry(ctx, b, p, rev, Entry{
+			After:     after,
+			Author:    e.Author,
+			Data:      e.Data,
+			Timestamp: e.Timestamp,
+		}); err != nil {
 			return nil, err
 		}
-		p = p.Successor()
 	}
 	return b.Finish(ctx)
 }
 
-func (o *Operator) Revise(ctx context.Context, s cadata.Store, x Root, p Path, desired Event) (*Root, error) {
+func (o *Operator) Revise(ctx context.Context, s cadata.Store, x Root, p Path, desired Entry) (*Root, error) {
 	panic("revisions not yet supported")
 	return nil, nil
 }
@@ -89,12 +104,12 @@ func (o *Operator) Read(ctx context.Context, s cadata.Store, x Root, begin Path,
 			}
 			return n, err
 		}
-		p, _, err := parseEventKey(ent.Key)
+		p, _, err := parseEntryKey(ent.Key)
 		if err != nil {
 			return 0, err
 		}
 		buf[n].Path = p
-		if err := json.Unmarshal(ent.Value, &buf[n].Event); err != nil {
+		if err := json.Unmarshal(ent.Value, &buf[n].Entry); err != nil {
 			return n, err
 		}
 		n++
@@ -129,7 +144,7 @@ func (o *Operator) interleave(ctx context.Context, b *gotkv.Builder, base Path, 
 		panic("threads not yet supported")
 	}
 	set := make(map[cadata.ID]struct{})
-	var h []*Event
+	var h []*Entry
 	for {
 		var ent gotkv.Entry
 		for i := range its {
@@ -139,24 +154,24 @@ func (o *Operator) interleave(ctx context.Context, b *gotkv.Builder, base Path, 
 				}
 				return err
 			}
-			ev, err := parseEvent(ent.Value)
+			ev, err := parseEntry(ent.Value)
 			if err != nil {
 				return err
 			}
 			id := ev.ID()
 			if _, exists := set[id]; !exists {
-				h = heap.Push(h, ev, ltEvent)
+				h = heap.Push(h, ev, ltEntry)
 				set[id] = struct{}{}
 			}
 		}
 		if len(h) == 0 {
 			break
 		}
-		var next *Event
-		next, h = heap.Pop(h, ltEvent)
+		var next *Entry
+		next, h = heap.Pop(h, ltEntry)
 		delete(set, next.ID())
 		p := base.Successor()
-		if err := putEvent(ctx, b, Path{}, 0, *next); err != nil {
+		if err := putEntry(ctx, b, Path{}, 0, *next); err != nil {
 			return err
 		}
 		base = p
@@ -168,19 +183,19 @@ func (o *Operator) Validate(ctx context.Context, s cadata.Store, author PeerID, 
 	return nil
 }
 
-func putEvent(ctx context.Context, b *gotkv.Builder, p Path, rev uint32, ev Event) error {
+func putEntry(ctx context.Context, b *gotkv.Builder, p Path, rev uint32, ev Entry) error {
 	data, err := json.Marshal(ev)
 	if err != nil {
 		return err
 	}
-	if len(data) > MaxMessageLen {
-		return ErrMessageLen{Data: data}
+	if len(data) > MaxEntryLen {
+		return ErrEntryLen{Data: data}
 	}
-	key := appendEventKey(nil, p, rev)
+	key := appendEntryKey(nil, p, rev)
 	return b.Put(ctx, key, data)
 }
 
-func appendEventKey(out []byte, p Path, rev uint32) []byte {
+func appendEntryKey(out []byte, p Path, rev uint32) []byte {
 	for i, n := range p {
 		if i > 0 {
 			out = append(out, prefixChildren)
@@ -194,7 +209,7 @@ func appendEventKey(out []byte, p Path, rev uint32) []byte {
 	return out
 }
 
-func parseEventKey(x []byte) (Path, uint32, error) {
+func parseEntryKey(x []byte) (Path, uint32, error) {
 	var ret Path
 	if len(x) < 8 {
 		return nil, 0, fmt.Errorf("paths are >= 8 bytes")
@@ -217,7 +232,7 @@ func parseEventKey(x []byte) (Path, uint32, error) {
 	return ret, 0, nil
 }
 
-func ltEvent(a, b *Event) bool {
+func ltEntry(a, b *Entry) bool {
 	return a.Lt(b)
 }
 

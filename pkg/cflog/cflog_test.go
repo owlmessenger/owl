@@ -24,10 +24,10 @@ func TestAppendRead(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
-	root, err = op.Append(ctx, s, *root, nil, []Event{
-		newTextMessage("one"),
-		newTextMessage("two"),
-		newTextMessage("three"),
+	root, err = op.Append(ctx, s, *root, nil, []EntryParams{
+		newText("one"),
+		newText("two"),
+		newText("three"),
 	})
 	require.NoError(t, err)
 
@@ -45,8 +45,8 @@ func newStore(t testing.TB) cadata.Store {
 	return cadata.NewMem(func(x []byte) cadata.ID { return sha3.Sum256(x) }, 1<<20)
 }
 
-func newTextMessage(x string) Event {
-	return Event{
+func newText(x string) EntryParams {
+	return EntryParams{
 		Data: jsonMarshal(x),
 	}
 }

@@ -5,10 +5,10 @@ import (
 	"fmt"
 )
 
-type ErrMessageLen struct {
+type ErrEntryLen struct {
 	Data json.RawMessage
 }
 
-func (e ErrMessageLen) Error() string {
-	return fmt.Sprintf("message exceeds maximum length (%d > %d)", len(e.Data), MaxMessageLen)
+func (e ErrEntryLen) Error() string {
+	return fmt.Sprintf("message exceeds maximum length (%d > %d)", len(e.Data), MaxEntryLen)
 }

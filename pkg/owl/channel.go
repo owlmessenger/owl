@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 	"github.com/owlmessenger/owl/pkg/dbutil"
 	"github.com/owlmessenger/owl/pkg/feeds"
+	"github.com/owlmessenger/owl/pkg/p/directmsg"
 	"github.com/owlmessenger/owl/pkg/p/directory"
 	"github.com/owlmessenger/owl/pkg/p/room"
 )
@@ -25,7 +27,12 @@ func (s *Server) CreateChannel(ctx context.Context, cid ChannelID, p ChannelPara
 	if err := s.Init(ctx); err != nil {
 		return err
 	}
+
 	// collect peer addresses
+	ps, err := s.getPersonaServer(ctx, cid.Persona)
+	if err != nil {
+		return err
+	}
 	var peers []PeerID
 	for _, member := range p.Members {
 		c, err := s.GetContact(ctx, cid.Persona, member)
@@ -34,23 +41,41 @@ func (s *Server) CreateChannel(ctx context.Context, cid ChannelID, p ChannelPara
 		}
 		peers = append(peers, c.Addrs...)
 	}
-	ps, err := s.getPersonaServer(ctx, cid.Persona)
-	if err != nil {
-		return err
+
+	var (
+		newFeed     func(tx *sqlx.Tx) (int, error)
+		newDirValue func(feeds.ID) directory.Value
+	)
+	switch p.Type {
+	case DirectMessageV0:
+		newFeed = func(tx *sqlx.Tx) (int, error) {
+			return createFeed(tx, p.Type, func(s cadata.Store) (*directmsg.State, error) {
+				op := directmsg.New()
+				return op.NewEmpty(ctx, s)
+			})
+		}
+		newDirValue = func(fid feeds.ID) directory.Value {
+			return directory.Value{
+				DirectMessage: &directory.DirectMessage{
+					Members: p.Members,
+					Feed:    fid,
+				},
+			}
+		}
+	default:
+		return fmt.Errorf("%q is not a valid channel type", p.Type)
 	}
+
 	// create the new feed and channel state
 	rootID, err := dbutil.DoTx1(ctx, s.db, func(tx *sqlx.Tx) (*feeds.ID, error) {
-		feedID, err := createFeed(tx, "", func(s cadata.Store) (*room.State, error) {
-			op := room.New()
-			return op.NewEmpty(ctx, s, peers)
-		})
+		feedID, err := newFeed(tx)
 		if err != nil {
 			return nil, err
 		}
 		if _, err := tx.Exec(`INSERT INTO persona_channels (persona_id, feed_id) VALUES (?, ?)`, ps.id, feedID); err != nil {
 			return nil, err
 		}
-		fstate, err := loadFeed[room.State](tx, feedID)
+		fstate, err := loadFeed[json.RawMessage](tx, feedID)
 		if err != nil {
 			return nil, err
 		}
@@ -62,9 +87,7 @@ func (s *Server) CreateChannel(ctx context.Context, cid ChannelID, p ChannelPara
 	// add the channel to the persona's directory
 	return ps.modifyDirectory(ctx, func(s cadata.Store, x directory.State) (*directory.State, error) {
 		op := directory.New()
-		return op.Put(ctx, s, x, cid.Name, directory.Value{
-			Channel: rootID,
-		})
+		return op.Put(ctx, s, x, cid.Name, newDirValue(*rootID))
 	})
 }
 
@@ -84,7 +107,9 @@ func (s *Server) JoinChannel(ctx context.Context, cid ChannelID, fid feeds.ID) e
 		} else if exists {
 			return nil, errors.New("channel already exists with that name")
 		}
-		return op.Put(ctx, s, x, cid.Name, directory.Value{Channel: &fid})
+		return op.Put(ctx, s, x, cid.Name, directory.Value{
+			Room: &directory.Room{Feed: fid},
+		})
 	})
 }
 
@@ -122,33 +147,23 @@ func (s *Server) ListChannels(ctx context.Context, persona string, span state.Sp
 }
 
 func (s *Server) GetChannel(ctx context.Context, cid ChannelID) (*ChannelInfo, error) {
-	feedID, err := s.resolveChannel(ctx, cid)
-	if err != nil {
-		return nil, err
-	}
-	return &ChannelInfo{
-		Feed: *feedID,
-	}, nil
-}
-
-func (s *Server) resolveChannel(ctx context.Context, cid ChannelID) (*feeds.ID, error) {
 	ps, err := s.getPersonaServer(ctx, cid.Persona)
 	if err != nil {
 		return nil, err
 	}
-	state, store, err := ps.viewDirectory(ctx)
+	v, err := ps.resolveChannel(ctx, cid)
 	if err != nil {
 		return nil, err
 	}
-	op := directory.New()
-	v, err := op.Get(ctx, store, *state, cid.Name)
-	if err != nil {
-		return nil, err
+	switch {
+	case v.DirectMessage != nil:
+		return &ChannelInfo{
+			Type: DirectMessageV0,
+			Feed: v.DirectMessage.Feed,
+		}, nil
+	default:
+		return nil, errors.New("empty directory entry")
 	}
-	if v.Channel == nil {
-		return nil, errors.New("non-channel directory values not supported")
-	}
-	return v.Channel, nil
 }
 
 func (s *Server) Send(ctx context.Context, cid ChannelID, mp MessageParams) error {
@@ -159,16 +174,13 @@ func (s *Server) Send(ctx context.Context, cid ChannelID, mp MessageParams) erro
 	if err != nil {
 		return err
 	}
-	msgData, err := json.Marshal(string(mp.Body))
-	if err != nil {
-		return err
-	}
-	return ps.modifyRoom(ctx, cid.Name, func(s cadata.Store, x room.State, author PeerID) (*room.State, error) {
-		op := room.New()
-		return op.Append(ctx, s, x, room.Event{
+	return ps.modifyDM(ctx, cid.Name, func(s cadata.Store, x directmsg.State, author PeerID) (*directmsg.State, error) {
+		op := directmsg.New()
+		return op.Append(ctx, s, x, directmsg.MessageParams{
 			Author:    author,
 			Timestamp: tai64.FromGoTime(time.Now()),
-			Data:      msgData,
+			Type:      mp.Type,
+			Body:      mp.Body,
 		})
 	})
 }
@@ -184,28 +196,37 @@ func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit
 	if err != nil {
 		return nil, err
 	}
-	x, store, err := ps.viewRoom(ctx, cid.Name)
+	v, err := ps.resolveChannel(ctx, cid)
 	if err != nil {
 		return nil, err
 	}
-	op := room.New()
-	buf := make([]room.Pair, 128)
-	n, err := op.Read(ctx, store, *x, room.Path(begin), buf)
-	if err != nil {
-		return nil, err
-	}
-	var ret []Pair
-	for _, x := range buf[:n] {
-		y, err := s.convertRoomEvent(ctx, x.Event)
+	switch {
+	case v.DirectMessage != nil:
+		x, store, err := ps.viewDM(ctx, cid.Name)
 		if err != nil {
 			return nil, err
 		}
-		ret = append(ret, Pair{
-			Path:  EventPath(x.Path),
-			Event: y,
-		})
+		op := directmsg.New()
+		buf := make([]directmsg.Message, 128)
+		n, err := op.Read(ctx, store, *x, room.Path(begin), buf)
+		if err != nil {
+			return nil, err
+		}
+		var ret []Pair
+		for _, x := range buf[:n] {
+			y, err := ps.convertDM(ctx, x)
+			if err != nil {
+				return nil, err
+			}
+			ret = append(ret, Pair{
+				Path:  EventPath(x.Path),
+				Event: y,
+			})
+		}
+		return ret, nil
+	default:
+		return nil, errors.New("empty directory value")
 	}
-	return ret, nil
 }
 
 func (s *Server) Wait(ctx context.Context, cid ChannelID, since EventPath) (EventPath, error) {
@@ -222,16 +243,19 @@ func (s *Server) Flush(ctx context.Context, cid ChannelID) error {
 	return nil
 }
 
-func (s *Server) convertRoomEvent(ctx context.Context, x room.Event) (*Event, error) {
-	var y Event
-	switch {
-	case x.Data != nil:
-		y.Message = &Message{
-			FromPeer: x.Author,
-			Body:     x.Data,
-		}
-	default:
-		return nil, errors.New("empty event")
+func (s *personaServer) convertDM(ctx context.Context, x directmsg.Message) (*Event, error) {
+	name, err := s.whoIs(ctx, x.Author)
+	if err != nil {
+		// TODO: also handle when we are the sender
+		// return nil, err
 	}
-	return &y, nil
+	return &Event{
+		Message: &Message{
+			FromPeer:    x.Author,
+			FromContact: name,
+			SentAt:      x.Timestamp.GoTime(),
+			Type:        x.Type,
+			Body:        x.Body,
+		},
+	}, nil
 }

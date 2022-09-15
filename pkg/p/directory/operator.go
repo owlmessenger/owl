@@ -12,8 +12,18 @@ import (
 	"github.com/owlmessenger/owl/pkg/feeds"
 )
 
+type DirectMessage struct {
+	Members []string `json:"members"`
+	Feed    feeds.ID `json:"feed_id"`
+}
+
+type Room struct {
+	Feed feeds.ID `json:"feed_id"`
+}
+
 type Value struct {
-	Channel *feeds.ID `json:"channel"`
+	DirectMessage *DirectMessage `json:"direct_message"`
+	Room          *Room          `json:"room"`
 
 	// TODO: support shared directories
 	// Directory *feeds.ID

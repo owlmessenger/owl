@@ -34,7 +34,9 @@ func TestChannelsCRUD(t *testing.T) {
 	createPersona(t, s, "test")
 	cs := listChannels(t, s, "test")
 	require.Len(t, cs, 0)
-	createChannel(t, s, "test", "chan1", nil)
+	createChannel(t, s, "test", "chan1", ChannelParams{
+		Type: DirectMessageV0,
+	})
 	cs = listChannels(t, s, "test")
 	require.Len(t, cs, 1)
 }
@@ -59,21 +61,20 @@ func TestChannelRW(t *testing.T) {
 	createContact(t, s, "B", "a", getPeer(t, s, "A"))
 
 	// A invites B to a new channel
-	createChannel(t, s, "A", "chan1", []string{"b"})
-	require.Len(t, readEvents(t, s, "A", "chan1"), 1)
+	createChannel(t, s, "A", "chan1", ChannelParams{Type: DirectMessageV0, Members: []string{"b"}})
 
 	msgBody := "hello world"
-	sendMessage(t, s, "A", "chan1", MessageParams{Type: "text", Body: []byte(msgBody)})
+	sendMessage(t, s, "A", "chan1", msgBody)
 	events := readEvents(t, s, "A", "chan1")
 	t.Log(events)
-	require.Len(t, events, 2)
-	require.NotNil(t, events[1].Message)
-	require.Equal(t, `"`+msgBody+`"`, string(events[1].Message.Body))
+	require.Len(t, events, 1)
+	require.NotNil(t, events[0].Message)
+	require.Equal(t, `"`+msgBody+`"`, string(events[0].Message.Body))
 }
 
-func createChannel(t testing.TB, x API, persona, name string, members []string) {
+func createChannel(t testing.TB, x API, persona, name string, p ChannelParams) {
 	ctx := context.Background()
-	require.NoError(t, x.CreateChannel(ctx, ChannelID{Persona: persona, Name: name}, ChannelParams{Members: members}))
+	require.NoError(t, x.CreateChannel(ctx, ChannelID{Persona: persona, Name: name}, p))
 }
 
 func listChannels(t testing.TB, x API, persona string) []string {
@@ -83,9 +84,10 @@ func listChannels(t testing.TB, x API, persona string) []string {
 	return ret
 }
 
-func sendMessage(t testing.TB, x API, persona, chanName string, p MessageParams) {
+func sendMessage(t testing.TB, x API, persona, chanName string, msg string) {
 	ctx := context.Background()
-	err := x.Send(ctx, ChannelID{Persona: persona, Name: chanName}, p)
+	mp := NewText(msg)
+	err := x.Send(ctx, ChannelID{Persona: persona, Name: chanName}, mp)
 	require.NoError(t, err)
 }
 
