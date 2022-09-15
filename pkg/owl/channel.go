@@ -196,7 +196,7 @@ func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit
 	}
 	var ret []Pair
 	for _, x := range buf[:n] {
-		y, err := s.convertEvent(ctx, x.Event)
+		y, err := s.convertRoomEvent(ctx, x.Event)
 		if err != nil {
 			return nil, err
 		}
@@ -222,26 +222,16 @@ func (s *Server) Flush(ctx context.Context, cid ChannelID) error {
 	return nil
 }
 
-func (s *Server) convertEvent(ctx context.Context, x channel.Event) (*Event, error) {
-	return &Event{}, nil
-	// var y Event
-	// switch {
-	// case x.Origin != nil:
-	// 	return &Event{ChannelCreated: &struct{}{}}, nil
-	// case x.Message != nil:
-	// 	var body string
-	// 	if err := json.Unmarshal(x.Message, &body); err != nil {
-	// 		return nil, err
-	// 	}
-	// 	return &Event{
-	// 		Message: &Message{
-	// 			Body: []byte(body),
-	// 		},
-	// 	}, nil
-	// case x.PeerAdded != nil:
-	// case x.PeerRemoved != nil:
-	// default:
-	// 	return nil, errors.New("empty event")
-	// }
-	// return &y, nil
+func (s *Server) convertRoomEvent(ctx context.Context, x channel.Event) (*Event, error) {
+	var y Event
+	switch {
+	case x.Data != nil:
+		y.Message = &Message{
+			FromPeer: x.Author,
+			Body:     x.Data,
+		}
+	default:
+		return nil, errors.New("empty event")
+	}
+	return &y, nil
 }

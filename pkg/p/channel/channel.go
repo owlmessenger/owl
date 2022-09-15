@@ -98,37 +98,8 @@ func (o *Operator) Append(ctx context.Context, s cadata.Store, x State, ev cflog
 
 // Read reads messages into buf.
 func (o *Operator) Read(ctx context.Context, s cadata.Store, x State, begin cflog.Path, buf []cflog.Pair) (int, error) {
-	return o.cflog.ReadThread(ctx, s, x.Events, begin, buf)
+	return o.cflog.Read(ctx, s, x.Events, begin, buf)
 }
-
-// // List lists messgae
-// func (o *Operator) List(ctx context.Context, s cadata.Store, x State, span state.Span[EventID]) (ret []EventID, _ error) {
-// 	var n int
-// 	for i := range x.Events {
-// 		if n >= len(ret) {
-// 			break
-// 		}
-// 		if span.Contains(x.Events[i].ID, IDCompare) {
-// 			ret[n] = x.Events[i].ID
-// 			n++
-// 		}
-// 	}
-// 	return ret, nil
-// }
-
-// // Get gets a single event by id.
-// func (o *Operator) Get(ctx context.Context, s cadata.Store, x State, p Path) (*Event, error) {
-// 	var buf [1]Pair
-// 	span := state.PointSpan(id)
-// 	n, err := o.Read(ctx, s, x, span, buf[:])
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	if n == 0 {
-// 		return nil, errors.New("message does not exist")
-// 	}
-// 	return &buf[0].Event, nil
-// }
 
 // Validate determines if the transision is valid
 func (o *Operator) Validate(ctx context.Context, s cadata.Store, author feeds.PeerID, prev, next State) error {

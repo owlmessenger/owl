@@ -20,7 +20,7 @@ func TestAppendRead(t *testing.T) {
 	require.NoError(t, err)
 
 	buf := make([]Pair, 10)
-	n, err := op.ReadThread(ctx, s, *root, Path{}, buf)
+	n, err := op.Read(ctx, s, *root, Path{}, buf)
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
@@ -31,7 +31,7 @@ func TestAppendRead(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	n, err = op.ReadThread(ctx, s, *root, nil, buf)
+	n, err = op.Read(ctx, s, *root, nil, buf)
 	require.NoError(t, err)
 	require.Equal(t, 3, n)
 }

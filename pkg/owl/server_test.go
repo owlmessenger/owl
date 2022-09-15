@@ -65,9 +65,10 @@ func TestChannelRW(t *testing.T) {
 	msgBody := "hello world"
 	sendMessage(t, s, "A", "chan1", MessageParams{Type: "text", Body: []byte(msgBody)})
 	events := readEvents(t, s, "A", "chan1")
+	t.Log(events)
 	require.Len(t, events, 2)
 	require.NotNil(t, events[1].Message)
-	require.Equal(t, msgBody, string(events[1].Message.Body))
+	require.Equal(t, `"`+msgBody+`"`, string(events[1].Message.Body))
 }
 
 func createChannel(t testing.TB, x API, persona, name string, personas []string) {

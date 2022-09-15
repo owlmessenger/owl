@@ -2,12 +2,9 @@ package owl
 
 import (
 	"context"
-	"database/sql/driver"
-	"encoding/binary"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -16,7 +13,6 @@ import (
 
 	"github.com/owlmessenger/owl/pkg/feeds"
 	"github.com/owlmessenger/owl/pkg/owlnet"
-	"github.com/owlmessenger/owl/pkg/p/channel"
 )
 
 // PeerID uniquely identifies peers on the network.
@@ -91,74 +87,14 @@ type ChannelInfo struct {
 	Latest EventPath
 }
 
-// EventPath identifies an event within a channel
-// EventPaths will always have a length > 0.
-// If the length is > 1, then all but the last element are considered the ThreadID
-type EventPath channel.Path
-
-func ParseEventPath(data []byte) (EventPath, error) {
-	if len(data) < 8 || len(data)%8 != 0 {
-		return nil, errors.New("wrong length for message index")
-	}
-	ret := EventPath{}
-	for i := 0; i < len(data)/8; i++ {
-		x := binary.BigEndian.Uint64(data[i*8:])
-		ret = append(ret, x)
-	}
-	return ret, nil
-}
-
-func (p *EventPath) Scan(x interface{}) error {
-	switch x := x.(type) {
-	case []byte:
-		p2, err := ParseEventPath(x)
-		if err != nil {
-			return err
-		}
-		*p = p2
-		return nil
-	default:
-		return fmt.Errorf("cannot scan from type %T", x)
-	}
-}
-
-func (p EventPath) Value() (driver.Value, error) {
-	return p.Marshal(), nil
-}
-
-// ThreadID is the component of the index which referes to a thread.
-// ThreadID will be nil for messages in the root.
-func (mi EventPath) ThreadID() []uint64 {
-	l := len(mi)
-	return mi[:l]
-}
-
-func (mi EventPath) Marshal() []byte {
-	out := make([]byte, len(mi)*8)
-	for i := range mi {
-		binary.BigEndian.PutUint64(out[i*8:], mi[i])
-	}
-	return out
-}
-
-func (mi EventPath) String() string {
-	sb := strings.Builder{}
-	for i, n := range mi {
-		if i > 0 {
-			sb.WriteString(".")
-		}
-		sb.WriteString(strconv.FormatUint(n, 10))
-	}
-	return sb.String()
-}
+type EventPath = Path
 
 // Event is an element in a Channel.
-// Events each have a unique EventPath.
+// Events each have a unique Path.
 type Event struct {
-	ChannelCreated *struct{}
-	PeerAdded      *PeerAdded
-	PeerRemoved    *PeerRemoved
-	Message        *Message
+	PeerAdded   *PeerAdded
+	PeerRemoved *PeerRemoved
+	Message     *Message
 }
 
 // PeerAdded is a type of Event
@@ -177,17 +113,17 @@ type Message struct {
 	FromPeer    PeerID
 	After       []EventPath
 
-	SentAt  time.Time
-	Type    string
-	Headers map[string]string
-	Body    []byte
+	SentAt time.Time
+	Type   string
+	Body   json.RawMessage
 }
 
 // MessageParams are used to create a message
 type MessageParams struct {
-	Type   string
 	Parent EventPath
-	Body   []byte
+
+	Type string
+	Body json.RawMessage
 }
 
 // Text creates parameters for a simple text message

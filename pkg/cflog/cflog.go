@@ -76,7 +76,7 @@ func (o *Operator) Revise(ctx context.Context, s cadata.Store, x Root, p Path, d
 	return nil, nil
 }
 
-func (o *Operator) ReadThread(ctx context.Context, s cadata.Store, x Root, begin Path, buf []Pair) (int, error) {
+func (o *Operator) Read(ctx context.Context, s cadata.Store, x Root, begin Path, buf []Pair) (int, error) {
 	span2 := gotkv.TotalSpan()
 	it := o.gotkv.NewIterator(s, x, span2)
 
