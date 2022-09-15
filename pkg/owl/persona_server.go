@@ -19,9 +19,9 @@ import (
 	"github.com/owlmessenger/owl/pkg/dbutil"
 	"github.com/owlmessenger/owl/pkg/feeds"
 	"github.com/owlmessenger/owl/pkg/owlnet"
-	"github.com/owlmessenger/owl/pkg/p/channel"
 	"github.com/owlmessenger/owl/pkg/p/contactset"
 	"github.com/owlmessenger/owl/pkg/p/directory"
+	"github.com/owlmessenger/owl/pkg/p/room"
 )
 
 // personaServer is a server managing a single persona
@@ -33,7 +33,7 @@ type personaServer struct {
 
 	contactSetCtrl *feedController[contactset.State]
 	directoryCtrl  *feedController[directory.State]
-	channelCtrl    *feedController[channel.State]
+	roomCtrl       *feedController[room.State]
 
 	mu    sync.Mutex
 	nodes map[PeerID]*owlnet.Node
@@ -67,7 +67,7 @@ func newPersonaServer(db *sqlx.DB, inetsrv inet256.Service, personaID int, membe
 		ProtocolName: "directory@v0",
 		GetProtocol:  ps.newDirectoryProtocol,
 	})
-	ps.channelCtrl = newFeedController(fcParams[channel.State]{
+	ps.roomCtrl = newFeedController(fcParams[room.State]{
 		Context:      ctx,
 		DB:           db,
 		GetNode:      ps.getNode,
@@ -98,7 +98,7 @@ func (ps *personaServer) readLoop(ctx context.Context, n *owlnet.Node) error {
 					logctx.Errorf(ctx, "%v", err)
 					return nil
 				}
-				allow, err := ps.channelCtrl.CanRead(ctx, feedID)
+				allow, err := ps.roomCtrl.CanRead(ctx, feedID)
 				if err != nil {
 					logctx.Errorf(ctx, "opening store: %v", err)
 					return nil
@@ -176,8 +176,7 @@ func (ps *personaServer) viewDirectory(ctx context.Context) (*directory.State, c
 	}
 	return ps.directoryCtrl.View(ctx, feedID)
 }
-
-func (ps *personaServer) modifyChannel(ctx context.Context, name string, fn func(cadata.Store, channel.State, PeerID) (*channel.State, error)) error {
+func (ps *personaServer) modifyRoom(ctx context.Context, name string, fn func(cadata.Store, room.State, PeerID) (*room.State, error)) error {
 	feedID, err := ps.getChannelFeed(ctx, name)
 	if err != nil {
 		return err
@@ -186,19 +185,19 @@ func (ps *personaServer) modifyChannel(ctx context.Context, name string, fn func
 	if err != nil {
 		return err
 	}
-	return ps.channelCtrl.Modify(ctx, feedID, author, func(feed *feeds.Feed[channel.State], s cadata.Store) error {
-		return feed.Modify(ctx, author, func(prev []feeds.Ref, x channel.State) (*channel.State, error) {
+	return ps.roomCtrl.Modify(ctx, feedID, author, func(feed *feeds.Feed[room.State], s cadata.Store) error {
+		return feed.Modify(ctx, author, func(prev []feeds.Ref, x room.State) (*room.State, error) {
 			return fn(s, x, author)
 		})
 	})
 }
 
-func (ps *personaServer) viewChannel(ctx context.Context, name string) (*channel.State, cadata.Store, error) {
+func (ps *personaServer) viewRoom(ctx context.Context, name string) (*room.State, cadata.Store, error) {
 	feedID, err := ps.getChannelFeed(ctx, name)
 	if err != nil {
 		return nil, nil, err
 	}
-	return ps.channelCtrl.View(ctx, feedID)
+	return ps.roomCtrl.View(ctx, feedID)
 }
 
 func (s *personaServer) getNode(ctx context.Context, id PeerID) (*owlnet.Node, error) {
@@ -282,6 +281,6 @@ func (ps *personaServer) newDirectoryProtocol(s cadata.Store) feeds.Protocol[dir
 	return directory.NewProtocol(s, ps.members)
 }
 
-func (ps *personaServer) newChannelProtocol(s cadata.Store) feeds.Protocol[channel.State] {
-	return channel.NewProtocol(s)
+func (ps *personaServer) newChannelProtocol(s cadata.Store) feeds.Protocol[room.State] {
+	return room.NewProtocol(s)
 }

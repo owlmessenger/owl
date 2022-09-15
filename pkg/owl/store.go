@@ -18,8 +18,8 @@ func createStore(tx *sqlx.Tx) (ret int, err error) {
 	return ret, err
 }
 
-// deleteStore deletes a store and any blobs not included in another store.
-func deleteStore(tx *sqlx.Tx, storeID int) error {
+// dropStore deletes a store and any blobs not included in another store.
+func dropStore(tx *sqlx.Tx, storeID int) error {
 	if _, err := tx.Exec(`DELETE FROM stores WHERE id = ?`, storeID); err != nil {
 		return err
 	}

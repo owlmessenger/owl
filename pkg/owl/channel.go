@@ -14,8 +14,8 @@ import (
 
 	"github.com/owlmessenger/owl/pkg/dbutil"
 	"github.com/owlmessenger/owl/pkg/feeds"
-	"github.com/owlmessenger/owl/pkg/p/channel"
 	"github.com/owlmessenger/owl/pkg/p/directory"
+	"github.com/owlmessenger/owl/pkg/p/room"
 )
 
 var _ ChannelAPI = &Server{}
@@ -40,8 +40,8 @@ func (s *Server) CreateChannel(ctx context.Context, cid ChannelID, members []str
 	}
 	// create the new feed and channel state
 	rootID, err := dbutil.DoTx1(ctx, s.db, func(tx *sqlx.Tx) (*feeds.ID, error) {
-		feedID, err := createFeed(tx, "", func(s cadata.Store) (*channel.State, error) {
-			op := channel.New()
+		feedID, err := createFeed(tx, "", func(s cadata.Store) (*room.State, error) {
+			op := room.New()
 			return op.NewEmpty(ctx, s, peers)
 		})
 		if err != nil {
@@ -50,7 +50,7 @@ func (s *Server) CreateChannel(ctx context.Context, cid ChannelID, members []str
 		if _, err := tx.Exec(`INSERT INTO persona_channels (persona_id, feed_id) VALUES (?, ?)`, ps.id, feedID); err != nil {
 			return nil, err
 		}
-		fstate, err := loadFeed[channel.State](tx, feedID)
+		fstate, err := loadFeed[room.State](tx, feedID)
 		if err != nil {
 			return nil, err
 		}
@@ -163,9 +163,9 @@ func (s *Server) Send(ctx context.Context, cid ChannelID, mp MessageParams) erro
 	if err != nil {
 		return err
 	}
-	return ps.modifyChannel(ctx, cid.Name, func(s cadata.Store, x channel.State, author PeerID) (*channel.State, error) {
-		op := channel.New()
-		return op.Append(ctx, s, x, channel.Event{
+	return ps.modifyRoom(ctx, cid.Name, func(s cadata.Store, x room.State, author PeerID) (*room.State, error) {
+		op := room.New()
+		return op.Append(ctx, s, x, room.Event{
 			Author:    author,
 			Timestamp: tai64.FromGoTime(time.Now()),
 			Data:      msgData,
@@ -184,13 +184,13 @@ func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit
 	if err != nil {
 		return nil, err
 	}
-	x, store, err := ps.viewChannel(ctx, cid.Name)
+	x, store, err := ps.viewRoom(ctx, cid.Name)
 	if err != nil {
 		return nil, err
 	}
-	op := channel.New()
-	buf := make([]channel.Pair, 128)
-	n, err := op.Read(ctx, store, *x, channel.Path(begin), buf)
+	op := room.New()
+	buf := make([]room.Pair, 128)
+	n, err := op.Read(ctx, store, *x, room.Path(begin), buf)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +222,7 @@ func (s *Server) Flush(ctx context.Context, cid ChannelID) error {
 	return nil
 }
 
-func (s *Server) convertRoomEvent(ctx context.Context, x channel.Event) (*Event, error) {
+func (s *Server) convertRoomEvent(ctx context.Context, x room.Event) (*Event, error) {
 	var y Event
 	switch {
 	case x.Data != nil:

@@ -221,14 +221,14 @@ func insertFeed[T any](tx *sqlx.Tx, protocol string, rootID feeds.ID, state feed
 	return feedID, err
 }
 
-// deleteFeed deletes from the feed table
+// dropFeed deletes from the feed table
 // it also deletes the store for the feed.
-func deleteFeed(tx *sqlx.Tx, feedID int) error {
+func dropFeed(tx *sqlx.Tx, feedID int) error {
 	storeID, err := lookupFeedStore(tx, feedID)
 	if err != nil {
 		return err
 	}
-	if err := deleteStore(tx, storeID); err != nil {
+	if err := dropStore(tx, storeID); err != nil {
 		return err
 	}
 	_, err = tx.Exec(`DELETE FROM feeds WHERE id = ?`, feedID)

@@ -53,6 +53,11 @@ func (s *Server) JoinPersona(ctx context.Context, name string, ids []inet256.Add
 	return nil
 }
 
+func (s *Server) DropPersona(ctx context.Context, name string) error {
+	panic("not implemented")
+	return nil
+}
+
 func (s *Server) ListPersonas(ctx context.Context) (ret []string, _ error) {
 	if err := s.Init(ctx); err != nil {
 		return nil, err

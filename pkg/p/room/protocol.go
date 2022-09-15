@@ -1,4 +1,4 @@
-package channel
+package room
 
 import (
 	"context"
