@@ -18,8 +18,7 @@ type PeerID = feeds.PeerID
 type State = gotfs.Root
 
 type ContactInfo struct {
-	Active  feeds.IDSet[PeerID] `json:"active"`
-	Retired feeds.IDSet[PeerID] `json:"retired"`
+	Active feeds.IDSet[PeerID] `json:"active"`
 }
 
 type Operator struct {

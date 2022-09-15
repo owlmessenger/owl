@@ -20,8 +20,8 @@ type State struct {
 type (
 	PeerID = feeds.PeerID
 	Path   = cflog.Path
-	Event  = cflog.Event
 	Pair   = cflog.Pair
+	Event  = cflog.Entry
 )
 
 type Operator struct {
@@ -48,7 +48,7 @@ func (o *Operator) NewEmpty(ctx context.Context, s cadata.Store, peers []feeds.P
 	if err != nil {
 		return nil, err
 	}
-	logRoot, err = o.cflog.Append(ctx, s, *logRoot, nil, []cflog.Event{
+	logRoot, err = o.cflog.Append(ctx, s, *logRoot, nil, []cflog.EntryParams{
 		{Data: []byte(`{"origin": {}}`)},
 	})
 	if err != nil {
@@ -90,9 +90,9 @@ func (o *Operator) HasMember(ctx context.Context, s cadata.Store, x State, peer 
 }
 
 // Append adds a message to the end of the conversation.
-func (o *Operator) Append(ctx context.Context, s cadata.Store, x State, ev cflog.Event) (*State, error) {
+func (o *Operator) Append(ctx context.Context, s cadata.Store, x State, ev cflog.EntryParams) (*State, error) {
 	return o.logApply(ctx, s, x, func(x cflog.Root) (*cflog.Root, error) {
-		return o.cflog.Append(ctx, s, x, nil, []cflog.Event{ev})
+		return o.cflog.Append(ctx, s, x, nil, []cflog.EntryParams{ev})
 	})
 }
 

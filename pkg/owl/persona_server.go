@@ -20,8 +20,8 @@ import (
 	"github.com/owlmessenger/owl/pkg/feeds"
 	"github.com/owlmessenger/owl/pkg/owlnet"
 	"github.com/owlmessenger/owl/pkg/p/contactset"
+	"github.com/owlmessenger/owl/pkg/p/directmsg"
 	"github.com/owlmessenger/owl/pkg/p/directory"
-	"github.com/owlmessenger/owl/pkg/p/room"
 )
 
 // personaServer is a server managing a single persona
@@ -33,7 +33,7 @@ type personaServer struct {
 
 	contactSetCtrl *feedController[contactset.State]
 	directoryCtrl  *feedController[directory.State]
-	roomCtrl       *feedController[room.State]
+	dmCtrl         *feedController[directmsg.State]
 
 	mu    sync.Mutex
 	nodes map[PeerID]*owlnet.Node
@@ -67,12 +67,12 @@ func newPersonaServer(db *sqlx.DB, inetsrv inet256.Service, personaID int, membe
 		ProtocolName: "directory@v0",
 		GetProtocol:  ps.newDirectoryProtocol,
 	})
-	ps.roomCtrl = newFeedController(fcParams[room.State]{
+	ps.dmCtrl = newFeedController(fcParams[directmsg.State]{
 		Context:      ctx,
 		DB:           db,
 		GetNode:      ps.getNode,
-		ProtocolName: "channel@v0",
-		GetProtocol:  ps.newChannelProtocol,
+		ProtocolName: DirectMessageV0,
+		GetProtocol:  ps.newDirectMsgProtocol,
 	})
 	ps.eg.Go(func() error { return ps.run(ctx) })
 	return ps
@@ -98,7 +98,7 @@ func (ps *personaServer) readLoop(ctx context.Context, n *owlnet.Node) error {
 					logctx.Errorf(ctx, "%v", err)
 					return nil
 				}
-				allow, err := ps.roomCtrl.CanRead(ctx, feedID)
+				allow, err := ps.dmCtrl.CanRead(ctx, feedID)
 				if err != nil {
 					logctx.Errorf(ctx, "opening store: %v", err)
 					return nil
@@ -176,7 +176,8 @@ func (ps *personaServer) viewDirectory(ctx context.Context) (*directory.State, c
 	}
 	return ps.directoryCtrl.View(ctx, feedID)
 }
-func (ps *personaServer) modifyRoom(ctx context.Context, name string, fn func(cadata.Store, room.State, PeerID) (*room.State, error)) error {
+
+func (ps *personaServer) modifyDM(ctx context.Context, name string, fn func(cadata.Store, directmsg.State, PeerID) (*directmsg.State, error)) error {
 	feedID, err := ps.getChannelFeed(ctx, name)
 	if err != nil {
 		return err
@@ -185,19 +186,19 @@ func (ps *personaServer) modifyRoom(ctx context.Context, name string, fn func(ca
 	if err != nil {
 		return err
 	}
-	return ps.roomCtrl.Modify(ctx, feedID, author, func(feed *feeds.Feed[room.State], s cadata.Store) error {
-		return feed.Modify(ctx, author, func(prev []feeds.Ref, x room.State) (*room.State, error) {
+	return ps.dmCtrl.Modify(ctx, feedID, author, func(feed *feeds.Feed[directmsg.State], s cadata.Store) error {
+		return feed.Modify(ctx, author, func(prev []feeds.Ref, x directmsg.State) (*directmsg.State, error) {
 			return fn(s, x, author)
 		})
 	})
 }
 
-func (ps *personaServer) viewRoom(ctx context.Context, name string) (*room.State, cadata.Store, error) {
+func (ps *personaServer) viewDM(ctx context.Context, name string) (*directmsg.State, cadata.Store, error) {
 	feedID, err := ps.getChannelFeed(ctx, name)
 	if err != nil {
 		return nil, nil, err
 	}
-	return ps.roomCtrl.View(ctx, feedID)
+	return ps.dmCtrl.View(ctx, feedID)
 }
 
 func (s *personaServer) getNode(ctx context.Context, id PeerID) (*owlnet.Node, error) {
@@ -267,10 +268,21 @@ func (s *personaServer) getChannelFeed(ctx context.Context, name string) (int, e
 	if err != nil {
 		return 0, err
 	}
-	if v.Channel == nil {
-		return 0, errors.New("non-channel directory entry not supported")
+	switch {
+	case v.DirectMessage != nil:
+		return lookupFeed(s.db, s.id, v.DirectMessage.Feed)
+	default:
+		return 0, errors.New("non-dm directory entry not supported")
 	}
-	return lookupFeed(s.db, s.id, *v.Channel)
+}
+
+func (ps *personaServer) resolveChannel(ctx context.Context, cid ChannelID) (*directory.Value, error) {
+	state, store, err := ps.viewDirectory(ctx)
+	if err != nil {
+		return nil, err
+	}
+	op := directory.New()
+	return op.Get(ctx, store, *state, cid.Name)
 }
 
 func (ps *personaServer) newContactSetProtocol(s cadata.Store) feeds.Protocol[contactset.State] {
@@ -281,6 +293,21 @@ func (ps *personaServer) newDirectoryProtocol(s cadata.Store) feeds.Protocol[dir
 	return directory.NewProtocol(s, ps.members)
 }
 
-func (ps *personaServer) newChannelProtocol(s cadata.Store) feeds.Protocol[room.State] {
-	return room.NewProtocol(s)
+func (ps *personaServer) newDirectMsgProtocol(s cadata.Store) feeds.Protocol[directmsg.State] {
+	return directmsg.NewProtocol(s, func(ctx context.Context) ([]PeerID, error) {
+		return nil, nil
+	})
+}
+
+func (ps *personaServer) getPeers(ctx context.Context, contact string) ([]PeerID, error) {
+	return nil, nil
+}
+
+func (ps *personaServer) whoIs(ctx context.Context, peerID PeerID) (string, error) {
+	x, store, err := ps.viewContactSet(ctx)
+	if err != nil {
+		return "", err
+	}
+	op := contactset.New()
+	return op.WhoIs(ctx, store, *x, peerID)
 }

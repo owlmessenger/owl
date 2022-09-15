@@ -83,6 +83,7 @@ func (a ChannelID) Compare(b ChannelID) int {
 }
 
 type ChannelInfo struct {
+	Type   string
 	Feed   feeds.ID
 	Latest EventPath
 }
@@ -120,17 +121,19 @@ type Message struct {
 
 // MessageParams are used to create a message
 type MessageParams struct {
+	Thread EventPath
 	Parent EventPath
 
 	Type string
 	Body json.RawMessage
 }
 
-// Text creates parameters for a simple text message
-func PlainText(x string) MessageParams {
+// NewText creates parameters for a simple text message
+func NewText(x string) MessageParams {
+	data, _ := json.Marshal(x)
 	return MessageParams{
-		Type: "text/plain",
-		Body: []byte(x),
+		Type: "text",
+		Body: data,
 	}
 }
 
@@ -141,7 +144,12 @@ type Pair struct {
 	Event *Event
 }
 
+const (
+	DirectMessageV0 = "directmsg@v0"
+)
+
 type ChannelParams struct {
+	Type    string
 	Members []string
 }
 
