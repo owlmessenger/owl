@@ -76,8 +76,8 @@ func newChannelReadCmd(sf func() owl.ChannelAPI) *cobra.Command {
 		name := args[0]
 		cid := owl.ChannelID{Persona: *persona, Name: name}
 		w := bufio.NewWriter(cmd.OutOrStdout())
-		if err := owl.ForEachEvent(ctx, sf(), cid, func(p owl.Pair) error {
-			return printEvent(w, p.Path, p.Event)
+		if err := owl.ForEachEntry(ctx, sf(), cid, func(e owl.Entry) error {
+			return printEvent(w, &e)
 		}); err != nil {
 			return err
 		}

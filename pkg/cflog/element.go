@@ -9,8 +9,8 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
-// Entry is a single item in the log
-type Entry struct {
+// Elem is the wire format for the log
+type Elem struct {
 	Thread Path        `json:"thread,omitempty"`
 	After  []cadata.ID `json:"after,omitempty"`
 
@@ -19,21 +19,21 @@ type Entry struct {
 	Data      json.RawMessage `json:"data"`
 }
 
-func (e *Entry) AsString() (ret string, _ error) {
+func (e *Elem) AsString() (ret string, _ error) {
 	err := e.into(&ret)
 	return ret, err
 }
 
-func (e *Entry) into(x interface{}) error {
+func (e *Elem) into(x interface{}) error {
 	return json.Unmarshal(e.Data, x)
 }
 
-func (ev *Entry) ID() (ret cadata.ID) {
+func (ev *Elem) ID() (ret cadata.ID) {
 	sha3.ShakeSum256(ret[:], jsonMarshal(ev))
 	return ret
 }
 
-func (a *Entry) Lt(b *Entry) bool {
+func (a *Elem) Lt(b *Elem) bool {
 	if len(a.Thread) > 0 || len(b.Thread) > 0 {
 		return PathCompare(a.Thread, b.Thread) < 0
 	}
@@ -41,12 +41,6 @@ func (a *Entry) Lt(b *Entry) bool {
 		return a.Timestamp.Before(b.Timestamp)
 	}
 	return false
-}
-
-// Pair is a (Path, Entry) pair
-type Pair struct {
-	Path  Path  `json:"path"`
-	Entry Entry `json:"entry"`
 }
 
 func jsonMarshal(x interface{}) []byte {
@@ -57,8 +51,8 @@ func jsonMarshal(x interface{}) []byte {
 	return data
 }
 
-func parseEntry(data []byte) (*Entry, error) {
-	var ev Entry
+func parseElem(data []byte) (*Elem, error) {
+	var ev Elem
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return nil, err
 	}

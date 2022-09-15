@@ -7,7 +7,7 @@ import (
 	"github.com/inet256/inet256/pkg/inet256"
 )
 
-// func WatchChannel(ctx context.Context, s ChannelAPI, cid ChannelID, fn func(i EventPath, e Event) error) error {
+// func WatchChannel(ctx context.Context, s ChannelAPI, cid ChannelID, fn func(i EntryPath, e Entry) error) error {
 // 	cinfo, err := s.GetChannel(ctx, cid)
 // 	if err != nil {
 // 		return err
@@ -17,7 +17,7 @@ import (
 // 		if err != nil {
 // 			return err
 // 		}
-// 		index := append(EventPath{}, cinfo.Latest...)
+// 		index := append(EntryPath{}, cinfo.Latest...)
 // 		for _, e := range events {
 // 			if err := fn(index, e); err != nil {
 // 				return err
@@ -46,8 +46,8 @@ func ForEachChannel(ctx context.Context, s ChannelAPI, persona string, fn func(s
 	}
 }
 
-func ForEachEvent(ctx context.Context, s ChannelAPI, cid ChannelID, fn func(p Pair) error) error {
-	var begin EventPath
+func ForEachEntry(ctx context.Context, s ChannelAPI, cid ChannelID, fn func(Entry) error) error {
+	var begin EntryPath
 	for {
 		pairs, err := s.Read(ctx, cid, begin, 128)
 		if err != nil {

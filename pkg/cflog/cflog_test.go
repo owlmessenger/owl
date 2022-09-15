@@ -19,7 +19,7 @@ func TestAppendRead(t *testing.T) {
 	root, err := op.NewEmpty(ctx, s)
 	require.NoError(t, err)
 
-	buf := make([]Pair, 10)
+	buf := make([]Entry, 10)
 	n, err := op.Read(ctx, s, *root, Path{}, buf)
 	require.NoError(t, err)
 	require.Equal(t, 0, n)

@@ -51,19 +51,19 @@ func (o *Operator) Append(ctx context.Context, s cadata.Store, x State, mp Messa
 }
 
 func (o *Operator) Read(ctx context.Context, s cadata.Store, x State, begin Path, buf []Message) (int, error) {
-	buf2 := make([]cflog.Pair, len(buf))
+	buf2 := make([]cflog.Entry, len(buf))
 	n, err := o.cflog.Read(ctx, s, x, begin, buf2)
 	if err != nil {
 		return 0, err
 	}
 	for i := range buf2[:n] {
-		e := buf2[i].Entry
+		e := buf2[i]
 		var payload entryPayload
 		if err := json.Unmarshal(e.Data, &payload); err != nil {
 			return 0, err
 		}
 		buf[i] = Message{
-			Path: buf2[i].Path,
+			Path: e.Path,
 
 			Author:    e.Author,
 			Timestamp: e.Timestamp,

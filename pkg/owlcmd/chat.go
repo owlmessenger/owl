@@ -52,7 +52,7 @@ func newChatCmd(sf func() owl.API) *cobra.Command {
 	return cmd
 }
 
-func printEvent(w *bufio.Writer, p owl.EventPath, e *owl.Event) error {
+func printEvent(w *bufio.Writer, e *owl.Entry) error {
 	var err error
 	switch {
 	case e.PeerAdded != nil:
@@ -60,8 +60,8 @@ func printEvent(w *bufio.Writer, p owl.EventPath, e *owl.Event) error {
 		_, err = fmt.Fprintf(w, " PEER %v ADDED BY %v\n", pa.Peer, pa.AddedBy)
 	case e.Message != nil:
 		m := e.Message
-		sentAt := m.SentAt.Truncate(time.Second).Local().Format(time.Stamp)
-		_, err = fmt.Fprintf(w, "%8v %8v %x %s: %s\n", p, sentAt, m.FromPeer[:4], m.FromContact, string(m.Body))
+		sentAt := m.Timestamp.Truncate(time.Second).Local().Format(time.Stamp)
+		_, err = fmt.Fprintf(w, "%8v %8v %x %s: %s\n", e, sentAt, m.AuthorPeer[:4], m.AuthorContact, string(m.Body))
 	default:
 		log.Println("empty event")
 		return nil

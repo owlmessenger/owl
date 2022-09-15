@@ -7,7 +7,6 @@ import (
 	"github.com/brendoncarroll/go-state"
 	"github.com/inet256/inet256/client/go_client/inet256client"
 	"github.com/jmoiron/sqlx"
-	"github.com/owlmessenger/owl/pkg/slices2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -65,11 +64,11 @@ func TestChannelRW(t *testing.T) {
 
 	msgBody := "hello world"
 	sendMessage(t, s, "A", "chan1", msgBody)
-	events := readEvents(t, s, "A", "chan1")
-	t.Log(events)
-	require.Len(t, events, 1)
-	require.NotNil(t, events[0].Message)
-	require.Equal(t, `"`+msgBody+`"`, string(events[0].Message.Body))
+	ents := readChannel(t, s, "A", "chan1")
+	t.Log(ents)
+	require.Len(t, ents, 1)
+	require.NotNil(t, ents[0].Message)
+	require.Equal(t, msgBody, ents[0].Message.AsString())
 }
 
 func createChannel(t testing.TB, x API, persona, name string, p ChannelParams) {
@@ -91,11 +90,11 @@ func sendMessage(t testing.TB, x API, persona, chanName string, msg string) {
 	require.NoError(t, err)
 }
 
-func readEvents(t testing.TB, x API, persona, chanName string) []Event {
+func readChannel(t testing.TB, x API, persona, chanName string) []Entry {
 	ctx := context.Background()
-	pairs, err := x.Read(ctx, ChannelID{Persona: persona, Name: chanName}, EventPath{}, 0)
+	ents, err := x.Read(ctx, ChannelID{Persona: persona, Name: chanName}, EntryPath{}, 0)
 	require.NoError(t, err)
-	return slices2.Map(pairs, func(p Pair) Event { return *p.Event })
+	return ents
 }
 
 func createPersona(t testing.TB, x API, name string) {

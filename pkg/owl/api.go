@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/brendoncarroll/go-state"
+	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/inet256/inet256/pkg/inet256"
 
 	"github.com/owlmessenger/owl/pkg/feeds"
@@ -85,44 +86,54 @@ func (a ChannelID) Compare(b ChannelID) int {
 type ChannelInfo struct {
 	Type   string
 	Feed   feeds.ID
-	Latest EventPath
+	Latest EntryPath
 }
 
-type EventPath = Path
+type EntryPath = Path
 
-// Event is an element in a Channel.
-// Events each have a unique Path.
-type Event struct {
+// Entry is an element in a Channel.
+// Entries each have a unique Path.
+type Entry struct {
+	Path EntryPath
+	ID   cadata.ID
+
 	PeerAdded   *PeerAdded
 	PeerRemoved *PeerRemoved
 	Message     *Message
 }
 
-// PeerAdded is a type of Event
+// PeerAdded is a type of Entry
 type PeerAdded struct {
 	Peer, AddedBy PeerID
 }
 
-// PeerRemoved is a type of Event
+// PeerRemoved is a type of Entry
 type PeerRemoved struct {
 	Peer, RemovedBy PeerID
 }
 
-// Message
+// Message is a type of Entry
 type Message struct {
-	FromContact string
-	FromPeer    PeerID
-	After       []EventPath
+	// AuthorPeer is the PeerID that wrote the message
+	AuthorPeer PeerID
+	// AuthorContact is the name of the contact which the peer corresponds to (if any).
+	AuthorContact string
+	After         []EntryPath
 
-	SentAt time.Time
-	Type   string
-	Body   json.RawMessage
+	Timestamp time.Time
+	Type      string
+	Body      json.RawMessage
+}
+
+func (m *Message) AsString() (ret string) {
+	json.Unmarshal(m.Body, &ret)
+	return ret
 }
 
 // MessageParams are used to create a message
 type MessageParams struct {
-	Thread EventPath
-	Parent EventPath
+	Thread EntryPath
+	Parent EntryPath
 
 	Type string
 	Body json.RawMessage
@@ -135,13 +146,6 @@ func NewText(x string) MessageParams {
 		Type: "text",
 		Body: data,
 	}
-}
-
-// Pair is an Event and the Path to it
-// Pairs are returned from Read
-type Pair struct {
-	Path  EventPath
-	Event *Event
 }
 
 const (
@@ -162,15 +166,15 @@ type ChannelAPI interface {
 	DeleteChannel(ctx context.Context, cid ChannelID) error
 	// ListChannels lists channels starting with begin
 	ListChannels(ctx context.Context, persona string, span state.Span[string], limit int) ([]string, error)
-	// GetLatest returns the latest EventIndex
+	// GetLatest returns the latest EntryIndex
 	GetChannel(ctx context.Context, cid ChannelID) (*ChannelInfo, error)
 
 	// Send, sends a message to a channel.
 	Send(ctx context.Context, cid ChannelID, mp MessageParams) error
 	// Read reads events from a channel
-	Read(ctx context.Context, cid ChannelID, begin EventPath, limit int) ([]Pair, error)
+	Read(ctx context.Context, cid ChannelID, begin EntryPath, limit int) ([]Entry, error)
 	// Wait blocks until the latest message in a channel changes is different from since
-	Wait(ctx context.Context, cid ChannelID, since EventPath) (EventPath, error)
+	Wait(ctx context.Context, cid ChannelID, since EntryPath) (EntryPath, error)
 }
 
 type API interface {

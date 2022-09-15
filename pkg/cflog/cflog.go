@@ -40,6 +40,7 @@ func (o *Operator) NewEmpty(ctx context.Context, s cadata.Store) (*Root, error) 
 	return o.gotkv.NewEmpty(ctx, s)
 }
 
+// EntryParams create an entry in the log.
 type EntryParams struct {
 	Author    feeds.PeerID
 	Data      json.RawMessage
@@ -58,11 +59,11 @@ func (o *Operator) Append(ctx context.Context, s cadata.Store, x Root, thread Pa
 	var rev uint32
 	var after []cadata.ID
 	if ent != nil {
-		p, rev, err = parseEntryKey(ent.Key)
+		p, rev, err = parseElemKey(ent.Key)
 		if err != nil {
 			return nil, err
 		}
-		e, err := parseEntry(ent.Value)
+		e, err := parseElem(ent.Value)
 		if err != nil {
 			return nil, err
 		}
@@ -74,7 +75,7 @@ func (o *Operator) Append(ctx context.Context, s cadata.Store, x Root, thread Pa
 	}
 	for _, e := range es {
 		p = p.Successor()
-		if err := putEntry(ctx, b, p, rev, Entry{
+		if err := putElem(ctx, b, p, rev, Elem{
 			After:     after,
 			Author:    e.Author,
 			Data:      e.Data,
@@ -86,12 +87,18 @@ func (o *Operator) Append(ctx context.Context, s cadata.Store, x Root, thread Pa
 	return b.Finish(ctx)
 }
 
-func (o *Operator) Revise(ctx context.Context, s cadata.Store, x Root, p Path, desired Entry) (*Root, error) {
+func (o *Operator) Revise(ctx context.Context, s cadata.Store, x Root, p Path, desired Elem) (*Root, error) {
 	panic("revisions not yet supported")
 	return nil, nil
 }
 
-func (o *Operator) Read(ctx context.Context, s cadata.Store, x Root, begin Path, buf []Pair) (int, error) {
+// Entries make up the log.
+type Entry struct {
+	Path
+	Elem
+}
+
+func (o *Operator) Read(ctx context.Context, s cadata.Store, x Root, begin Path, buf []Entry) (int, error) {
 	span2 := gotkv.TotalSpan()
 	it := o.gotkv.NewIterator(s, x, span2)
 
@@ -104,12 +111,12 @@ func (o *Operator) Read(ctx context.Context, s cadata.Store, x Root, begin Path,
 			}
 			return n, err
 		}
-		p, _, err := parseEntryKey(ent.Key)
+		p, _, err := parseElemKey(ent.Key)
 		if err != nil {
 			return 0, err
 		}
 		buf[n].Path = p
-		if err := json.Unmarshal(ent.Value, &buf[n].Entry); err != nil {
+		if err := json.Unmarshal(ent.Value, &buf[n].Elem); err != nil {
 			return n, err
 		}
 		n++
@@ -144,7 +151,7 @@ func (o *Operator) interleave(ctx context.Context, b *gotkv.Builder, base Path, 
 		panic("threads not yet supported")
 	}
 	set := make(map[cadata.ID]struct{})
-	var h []*Entry
+	var h []*Elem
 	for {
 		var ent gotkv.Entry
 		for i := range its {
@@ -154,24 +161,24 @@ func (o *Operator) interleave(ctx context.Context, b *gotkv.Builder, base Path, 
 				}
 				return err
 			}
-			ev, err := parseEntry(ent.Value)
+			ev, err := parseElem(ent.Value)
 			if err != nil {
 				return err
 			}
 			id := ev.ID()
 			if _, exists := set[id]; !exists {
-				h = heap.Push(h, ev, ltEntry)
+				h = heap.Push(h, ev, ltElem)
 				set[id] = struct{}{}
 			}
 		}
 		if len(h) == 0 {
 			break
 		}
-		var next *Entry
-		next, h = heap.Pop(h, ltEntry)
+		var next *Elem
+		next, h = heap.Pop(h, ltElem)
 		delete(set, next.ID())
 		p := base.Successor()
-		if err := putEntry(ctx, b, Path{}, 0, *next); err != nil {
+		if err := putElem(ctx, b, Path{}, 0, *next); err != nil {
 			return err
 		}
 		base = p
@@ -183,7 +190,7 @@ func (o *Operator) Validate(ctx context.Context, s cadata.Store, author PeerID, 
 	return nil
 }
 
-func putEntry(ctx context.Context, b *gotkv.Builder, p Path, rev uint32, ev Entry) error {
+func putElem(ctx context.Context, b *gotkv.Builder, p Path, rev uint32, ev Elem) error {
 	data, err := json.Marshal(ev)
 	if err != nil {
 		return err
@@ -191,11 +198,11 @@ func putEntry(ctx context.Context, b *gotkv.Builder, p Path, rev uint32, ev Entr
 	if len(data) > MaxEntryLen {
 		return ErrEntryLen{Data: data}
 	}
-	key := appendEntryKey(nil, p, rev)
+	key := appendElemKey(nil, p, rev)
 	return b.Put(ctx, key, data)
 }
 
-func appendEntryKey(out []byte, p Path, rev uint32) []byte {
+func appendElemKey(out []byte, p Path, rev uint32) []byte {
 	for i, n := range p {
 		if i > 0 {
 			out = append(out, prefixChildren)
@@ -209,7 +216,7 @@ func appendEntryKey(out []byte, p Path, rev uint32) []byte {
 	return out
 }
 
-func parseEntryKey(x []byte) (Path, uint32, error) {
+func parseElemKey(x []byte) (Path, uint32, error) {
 	var ret Path
 	if len(x) < 8 {
 		return nil, 0, fmt.Errorf("paths are >= 8 bytes")
@@ -232,7 +239,7 @@ func parseEntryKey(x []byte) (Path, uint32, error) {
 	return ret, 0, nil
 }
 
-func ltEntry(a, b *Entry) bool {
+func ltElem(a, b *Elem) bool {
 	return a.Lt(b)
 }
 

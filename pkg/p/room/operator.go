@@ -20,8 +20,7 @@ type State struct {
 type (
 	PeerID = feeds.PeerID
 	Path   = cflog.Path
-	Pair   = cflog.Pair
-	Event  = cflog.Entry
+	Entry  = cflog.Entry
 )
 
 type Operator struct {
@@ -97,7 +96,7 @@ func (o *Operator) Append(ctx context.Context, s cadata.Store, x State, ev cflog
 }
 
 // Read reads messages into buf.
-func (o *Operator) Read(ctx context.Context, s cadata.Store, x State, begin cflog.Path, buf []cflog.Pair) (int, error) {
+func (o *Operator) Read(ctx context.Context, s cadata.Store, x State, begin cflog.Path, buf []cflog.Entry) (int, error) {
 	return o.cflog.Read(ctx, s, x.Events, begin, buf)
 }
 

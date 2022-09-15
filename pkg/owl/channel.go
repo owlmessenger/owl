@@ -185,7 +185,7 @@ func (s *Server) Send(ctx context.Context, cid ChannelID, mp MessageParams) erro
 	})
 }
 
-func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit int) ([]Pair, error) {
+func (s *Server) Read(ctx context.Context, cid ChannelID, begin EntryPath, limit int) ([]Entry, error) {
 	if err := s.Init(ctx); err != nil {
 		return nil, err
 	}
@@ -212,16 +212,14 @@ func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit
 		if err != nil {
 			return nil, err
 		}
-		var ret []Pair
+		var ret []Entry
 		for _, x := range buf[:n] {
 			y, err := ps.convertDM(ctx, x)
 			if err != nil {
 				return nil, err
 			}
-			ret = append(ret, Pair{
-				Path:  EventPath(x.Path),
-				Event: y,
-			})
+			y.Path = EntryPath(x.Path)
+			ret = append(ret, *y)
 		}
 		return ret, nil
 	default:
@@ -229,7 +227,7 @@ func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit
 	}
 }
 
-func (s *Server) Wait(ctx context.Context, cid ChannelID, since EventPath) (EventPath, error) {
+func (s *Server) Wait(ctx context.Context, cid ChannelID, since EntryPath) (EntryPath, error) {
 	if err := s.Init(ctx); err != nil {
 		return nil, err
 	}
@@ -243,19 +241,19 @@ func (s *Server) Flush(ctx context.Context, cid ChannelID) error {
 	return nil
 }
 
-func (s *personaServer) convertDM(ctx context.Context, x directmsg.Message) (*Event, error) {
+func (s *personaServer) convertDM(ctx context.Context, x directmsg.Message) (*Entry, error) {
 	name, err := s.whoIs(ctx, x.Author)
 	if err != nil {
 		// TODO: also handle when we are the sender
 		// return nil, err
 	}
-	return &Event{
+	return &Entry{
 		Message: &Message{
-			FromPeer:    x.Author,
-			FromContact: name,
-			SentAt:      x.Timestamp.GoTime(),
-			Type:        x.Type,
-			Body:        x.Body,
+			AuthorPeer:    x.Author,
+			AuthorContact: name,
+			Timestamp:     x.Timestamp.GoTime(),
+			Type:          x.Type,
+			Body:          x.Body,
 		},
 	}, nil
 }
