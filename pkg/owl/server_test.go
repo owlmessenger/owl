@@ -71,9 +71,9 @@ func TestChannelRW(t *testing.T) {
 	require.Equal(t, `"`+msgBody+`"`, string(events[1].Message.Body))
 }
 
-func createChannel(t testing.TB, x API, persona, name string, personas []string) {
+func createChannel(t testing.TB, x API, persona, name string, members []string) {
 	ctx := context.Background()
-	require.NoError(t, x.CreateChannel(ctx, ChannelID{Persona: persona, Name: name}, personas))
+	require.NoError(t, x.CreateChannel(ctx, ChannelID{Persona: persona, Name: name}, ChannelParams{Members: members}))
 }
 
 func listChannels(t testing.TB, x API, persona string) []string {

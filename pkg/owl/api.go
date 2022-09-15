@@ -141,9 +141,13 @@ type Pair struct {
 	Event *Event
 }
 
+type ChannelParams struct {
+	Members []string
+}
+
 type ChannelAPI interface {
 	// CreateChannel creates a new channel with name
-	CreateChannel(ctx context.Context, cid ChannelID, members []string) error
+	CreateChannel(ctx context.Context, cid ChannelID, p ChannelParams) error
 	// JoinChannel joins an existing channel
 	JoinChannel(ctx context.Context, cid ChannelID, root feeds.ID) error
 	// DeleteChannel deletes the channel with name if it exists

@@ -34,8 +34,8 @@ func newChannelCreateCmd(sf func() owl.ChannelAPI) *cobra.Command {
 			return errors.New("must provide persona")
 		}
 		name := args[0]
-		contacts := args[1:]
-		return sf().CreateChannel(ctx, owl.ChannelID{Persona: *persona, Name: name}, contacts)
+		members := args[1:]
+		return sf().CreateChannel(ctx, owl.ChannelID{Persona: *persona, Name: name}, owl.ChannelParams{Members: members})
 	}
 	return cmd
 }

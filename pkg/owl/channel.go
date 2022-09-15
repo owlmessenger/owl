@@ -21,13 +21,13 @@ import (
 var _ ChannelAPI = &Server{}
 
 // CreateChannel creates a new channel
-func (s *Server) CreateChannel(ctx context.Context, cid ChannelID, members []string) error {
+func (s *Server) CreateChannel(ctx context.Context, cid ChannelID, p ChannelParams) error {
 	if err := s.Init(ctx); err != nil {
 		return err
 	}
 	// collect peer addresses
 	var peers []PeerID
-	for _, member := range members {
+	for _, member := range p.Members {
 		c, err := s.GetContact(ctx, cid.Persona, member)
 		if err != nil {
 			return err
