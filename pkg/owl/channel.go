@@ -3,113 +3,174 @@ package owl
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
+	"time"
 
-	"github.com/blobcache/glfs"
+	"github.com/brendoncarroll/go-state"
+	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/brendoncarroll/go-tai64"
 	"github.com/jmoiron/sqlx"
 
 	"github.com/owlmessenger/owl/pkg/dbutil"
 	"github.com/owlmessenger/owl/pkg/feeds"
-	"github.com/owlmessenger/owl/pkg/owlnet"
+	"github.com/owlmessenger/owl/pkg/p/directory"
+	"github.com/owlmessenger/owl/pkg/p/room"
 )
-
-const MaxChannelPeers = 256
 
 var _ ChannelAPI = &Server{}
 
-func (s *Server) CreateChannel(ctx context.Context, cid ChannelID, members []string) error {
+// CreateChannel creates a new channel
+func (s *Server) CreateChannel(ctx context.Context, cid ChannelID, p ChannelParams) error {
 	if err := s.Init(ctx); err != nil {
 		return err
 	}
-	var feedID *owlnet.FeedID
-	var localID PeerID
-	if err := dbutil.DoTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		var err error
-		localID, err = s.getAuthor(tx, cid)
+	// collect peer addresses
+	var peers []PeerID
+	for _, member := range p.Members {
+		c, err := s.GetContact(ctx, cid.Persona, member)
 		if err != nil {
 			return err
 		}
-		peers := []PeerID{localID}
-		for _, member := range members {
-			peers2, err := s.getPeersFor(tx, cid.Persona, member)
-			if err != nil {
-				return err
-			}
-			peers = append(peers, peers2...)
-		}
-		feedID, err = createFeed(tx, peers)
-		if err != nil {
-			return err
-		}
-		if _, err := s.createChannel(tx, cid, *feedID); err != nil {
-			return err
-		}
-		return s.feedController.TouchTx(tx, *feedID, localID)
-	}); err != nil {
+		peers = append(peers, c.Addrs...)
+	}
+	ps, err := s.getPersonaServer(ctx, cid.Persona)
+	if err != nil {
 		return err
 	}
-	return s.feedController.Touch(ctx, *feedID, localID)
-}
-
-func (s *Server) DeleteChannel(ctx context.Context, cid ChannelID) error {
-	return dbutil.DoTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		feedID, _, err := s.lookupChannelFeed(tx, cid)
+	// create the new feed and channel state
+	rootID, err := dbutil.DoTx1(ctx, s.db, func(tx *sqlx.Tx) (*feeds.ID, error) {
+		feedID, err := createFeed(tx, "", func(s cadata.Store) (*room.State, error) {
+			op := room.New()
+			return op.NewEmpty(ctx, s, peers)
+		})
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if err := deleteFeed(tx, feedID); err != nil {
-			return err
+		if _, err := tx.Exec(`INSERT INTO persona_channels (persona_id, feed_id) VALUES (?, ?)`, ps.id, feedID); err != nil {
+			return nil, err
 		}
-		return s.deleteChannel(tx, cid)
+		fstate, err := loadFeed[room.State](tx, feedID)
+		if err != nil {
+			return nil, err
+		}
+		return &fstate.ID, nil
+	})
+	if err != nil {
+		return err
+	}
+	// add the channel to the persona's directory
+	return ps.modifyDirectory(ctx, func(s cadata.Store, x directory.State) (*directory.State, error) {
+		op := directory.New()
+		return op.Put(ctx, s, x, cid.Name, directory.Value{
+			Channel: rootID,
+		})
 	})
 }
 
-func (s *Server) ListChannels(ctx context.Context, persona, begin string, limit int) ([]string, error) {
+// JoinChannel adds an existing channel feed identified by cid.
+func (s *Server) JoinChannel(ctx context.Context, cid ChannelID, fid feeds.ID) error {
+	if err := s.Init(ctx); err != nil {
+		return err
+	}
+	ps, err := s.getPersonaServer(ctx, cid.Persona)
+	if err != nil {
+		return err
+	}
+	return ps.modifyDirectory(ctx, func(s cadata.Store, x directory.State) (*directory.State, error) {
+		op := directory.New()
+		if exists, err := op.Exists(ctx, s, x, cid.Name); err != nil {
+			return nil, err
+		} else if exists {
+			return nil, errors.New("channel already exists with that name")
+		}
+		return op.Put(ctx, s, x, cid.Name, directory.Value{Channel: &fid})
+	})
+}
+
+func (s *Server) DeleteChannel(ctx context.Context, cid ChannelID) error {
+	if err := s.Init(ctx); err != nil {
+		return err
+	}
+	ps, err := s.getPersonaServer(ctx, cid.Persona)
+	if err != nil {
+		return err
+	}
+	return ps.modifyDirectory(ctx, func(s cadata.Store, x directory.State) (*directory.State, error) {
+		op := directory.New()
+		return op.Delete(ctx, s, x, cid.Name)
+	})
+}
+
+func (s *Server) ListChannels(ctx context.Context, persona string, span state.Span[string], limit int) ([]string, error) {
 	if err := s.Init(ctx); err != nil {
 		return nil, err
 	}
 	if limit < 1 {
 		limit = math.MaxInt
 	}
-	var ret []string
-	if err := s.db.SelectContext(ctx, &ret, `SELECT channels.name FROM personas
-		JOIN channels ON  personas.id = channels.persona_id
-		WHERE personas.name = ? AND channels.name >= ?
-		ORDER BY channels.name
-		LIMIT ?
-	`, persona, begin, limit); err != nil {
+	ps, err := s.getPersonaServer(ctx, persona)
+	if err != nil {
 		return nil, err
 	}
-	return ret, nil
+	x, store, err := ps.viewDirectory(ctx)
+	if err != nil {
+		return nil, err
+	}
+	op := directory.New()
+	return op.List(ctx, store, *x, span)
+}
+
+func (s *Server) GetChannel(ctx context.Context, cid ChannelID) (*ChannelInfo, error) {
+	feedID, err := s.resolveChannel(ctx, cid)
+	if err != nil {
+		return nil, err
+	}
+	return &ChannelInfo{
+		Feed: *feedID,
+	}, nil
+}
+
+func (s *Server) resolveChannel(ctx context.Context, cid ChannelID) (*feeds.ID, error) {
+	ps, err := s.getPersonaServer(ctx, cid.Persona)
+	if err != nil {
+		return nil, err
+	}
+	state, store, err := ps.viewDirectory(ctx)
+	if err != nil {
+		return nil, err
+	}
+	op := directory.New()
+	v, err := op.Get(ctx, store, *state, cid.Name)
+	if err != nil {
+		return nil, err
+	}
+	if v.Channel == nil {
+		return nil, errors.New("non-channel directory values not supported")
+	}
+	return v.Channel, nil
 }
 
 func (s *Server) Send(ctx context.Context, cid ChannelID, mp MessageParams) error {
 	if err := s.Init(ctx); err != nil {
 		return err
 	}
-	// TODO: marshal message
-	// determine localID to send as and the feedID of the channel's feed.
-	var localID owlnet.PeerID
-	var feedID owlnet.FeedID
-	var msgData []byte
-	if err := dbutil.DoTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		var err error
-		localID, err = s.getAuthor(tx, cid)
-		if err != nil {
-			return err
-		}
-		var chanID int
-		feedID, chanID, err = s.lookupChannelFeed(tx, cid)
-		if err != nil {
-			return err
-		}
-		msgData = marshalMessage(s.newMessage(chanID, mp))
-		return err
-	}); err != nil {
+	ps, err := s.getPersonaServer(ctx, cid.Persona)
+	if err != nil {
 		return err
 	}
-	return s.feedController.AppendData(ctx, feedID, localID, msgData)
+	msgData, err := json.Marshal(string(mp.Body))
+	if err != nil {
+		return err
+	}
+	return ps.modifyRoom(ctx, cid.Name, func(s cadata.Store, x room.State, author PeerID) (*room.State, error) {
+		op := room.New()
+		return op.Append(ctx, s, x, room.Event{
+			Author:    author,
+			Timestamp: tai64.FromGoTime(time.Now()),
+			Data:      msgData,
+		})
+	})
 }
 
 func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit int) ([]Pair, error) {
@@ -119,49 +180,32 @@ func (s *Server) Read(ctx context.Context, cid ChannelID, begin EventPath, limit
 	if limit <= 0 {
 		limit = 1024
 	}
-	type Row struct {
-		Path EventPath `db:"path"`
-		Data []byte    `db:"data"`
-	}
-	var rows []Row
-	if err := s.db.SelectContext(ctx, &rows, `SELECT channel_events.path, blobs.data FROM personas
-		JOIN channels on personas.id = channels.persona_id
-		JOIN channel_events ON channels.id = channel_events.channel_id
-		JOIN blobs ON channel_events.blob_id = blobs.id
-		WHERE personas.name = ? AND channels.name = ? AND channel_events.path >= ?
-		LIMIT ?
-	`, cid.Persona, cid.Name, begin.Marshal(), limit); err != nil {
-		return nil, err
-	}
-	pairs := make([]Pair, len(rows))
-	for i, row := range rows {
-		node, err := feeds.ParseNode(row.Data)
-		if err != nil {
-			return nil, err
-		}
-		ev, err := s.eventFromNode(s.db, cid.Persona, *node)
-		if err != nil {
-			return nil, err
-		}
-		pairs[i] = Pair{Path: row.Path, Event: ev}
-	}
-	return pairs, nil
-}
-
-func (s *Server) GetChannel(ctx context.Context, cid ChannelID) (*ChannelInfo, error) {
-	var data []byte
-	if err := s.db.SelectContext(ctx, &data, `SELECT max(channel_events.path) FROM personas
-		JOIN channels on personas.id = channels.persona_id
-		JOIN channel_events ON channels.id = channel_events.channel_id
-		WHERE personas.name = ? AND channels.name = ?
-	`, cid.Persona, cid.Name); err != nil {
-		return nil, err
-	}
-	ep, err := ParseEventPath(data)
+	ps, err := s.getPersonaServer(ctx, cid.Persona)
 	if err != nil {
 		return nil, err
 	}
-	return &ChannelInfo{Latest: ep}, nil
+	x, store, err := ps.viewRoom(ctx, cid.Name)
+	if err != nil {
+		return nil, err
+	}
+	op := room.New()
+	buf := make([]room.Pair, 128)
+	n, err := op.Read(ctx, store, *x, room.Path(begin), buf)
+	if err != nil {
+		return nil, err
+	}
+	var ret []Pair
+	for _, x := range buf[:n] {
+		y, err := s.convertRoomEvent(ctx, x.Event)
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, Pair{
+			Path:  EventPath(x.Path),
+			Event: y,
+		})
+	}
+	return ret, nil
 }
 
 func (s *Server) Wait(ctx context.Context, cid ChannelID, since EventPath) (EventPath, error) {
@@ -178,81 +222,16 @@ func (s *Server) Flush(ctx context.Context, cid ChannelID) error {
 	return nil
 }
 
-// WireMessage is the structure used to represent messages in the feed.
-type WireMessage struct {
-	SentAt      tai64.TAI64N        `json:"sent_at"`
-	Parent      EventPath           `json:"parent"`
-	Type        string              `json:"type"`
-	Headers     map[string]string   `json:"headers"`
-	Body        string              `json:"body"`
-	Attachments map[string]glfs.Ref `json:"attachments"`
-}
-
-func (s *Server) newMessage(chanInt int, mp MessageParams) WireMessage {
-	if len(mp.Parent) > 0 {
-		// TODO: lookup the NodeID of the message and include that.
-		panic("parent messages not yet support")
-	}
-	return WireMessage{
-		SentAt:      tai64.Now(),
-		Type:        mp.Type,
-		Parent:      mp.Parent,
-		Body:        string(mp.Body),
-		Attachments: mp.Attachments,
-	}
-}
-
-func parseMessage(x []byte) (*WireMessage, error) {
-	var ret WireMessage
-	if err := json.Unmarshal(x, &ret); err != nil {
-		return nil, err
-	}
-	return &ret, nil
-}
-
-func marshalMessage(m WireMessage) []byte {
-	data, err := json.Marshal(m)
-	if err != nil {
-		panic(err)
-	}
-	return data
-}
-
-// eventFromNode converts a node in the Feed into an event.
-func (s *Server) eventFromNode(tx dbGetter, persona string, node feeds.Node) (*Event, error) {
+func (s *Server) convertRoomEvent(ctx context.Context, x room.Event) (*Event, error) {
+	var y Event
 	switch {
-	case node.Init != nil:
-		return &Event{ChannelCreated: &struct{}{}}, nil
-	case node.AddPeer != nil:
-		return &Event{PeerAdded: &PeerAdded{
-			Peer:    node.AddPeer.Peer,
-			AddedBy: node.Author,
-		}}, nil
-	case node.RemovePeer != nil:
-		return &Event{PeerRemoved: &PeerRemoved{
-			Peer:      node.RemovePeer.Peer,
-			RemovedBy: node.Author,
-		}}, nil
-	case node.Data != nil:
-		wmsg, err := parseMessage(node.Data)
-		if err != nil {
-			return nil, err
+	case x.Data != nil:
+		y.Message = &Message{
+			FromPeer: x.Author,
+			Body:     x.Data,
 		}
-		contact, err := s.lookupName(tx, persona, node.Author)
-		if err != nil {
-			return nil, err
-		}
-		return &Event{
-			Message: &Message{
-				FromContact: contact,
-				FromPeer:    node.Author,
-				SentAt:      wmsg.SentAt.GoTime(),
-				Type:        wmsg.Type,
-				Headers:     wmsg.Headers,
-				Body:        []byte(wmsg.Body),
-			},
-		}, nil
 	default:
-		panic(node)
+		return nil, errors.New("empty event")
 	}
+	return &y, nil
 }

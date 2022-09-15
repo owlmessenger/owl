@@ -53,8 +53,6 @@ func newChatCmd(sf func() owl.API) *cobra.Command {
 func printEvent(w *bufio.Writer, p owl.EventPath, e *owl.Event) error {
 	var err error
 	switch {
-	case e.ChannelCreated != nil:
-		_, err = fmt.Fprintf(w, "=== CHANNEL ORIGIN ===\n")
 	case e.PeerAdded != nil:
 		pa := e.PeerAdded
 		_, err = fmt.Fprintf(w, " PEER %v ADDED BY %v\n", pa.Peer, pa.AddedBy)

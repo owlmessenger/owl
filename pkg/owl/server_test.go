@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/brendoncarroll/go-state"
 	"github.com/inet256/inet256/client/go_client/inet256client"
-	"github.com/inet256/inet256/pkg/inet256"
 	"github.com/jmoiron/sqlx"
 	"github.com/owlmessenger/owl/pkg/slices2"
 	"github.com/stretchr/testify/require"
@@ -22,7 +22,7 @@ func TestPersonasCRUD(t *testing.T) {
 	s := newTestServer(t)
 	names := listPersonas(t, s)
 	require.Len(t, names, 0)
-	createPersona(t, s, "test", nil)
+	createPersona(t, s, "test")
 	names = listPersonas(t, s)
 	require.Len(t, names, 1)
 	p := getPersona(t, s, "test")
@@ -31,7 +31,7 @@ func TestPersonasCRUD(t *testing.T) {
 
 func TestChannelsCRUD(t *testing.T) {
 	s := newTestServer(t)
-	createPersona(t, s, "test", nil)
+	createPersona(t, s, "test")
 	cs := listChannels(t, s, "test")
 	require.Len(t, cs, 0)
 	createChannel(t, s, "test", "chan1", nil)
@@ -41,10 +41,10 @@ func TestChannelsCRUD(t *testing.T) {
 
 func TestAddContact(t *testing.T) {
 	s := newTestServer(t)
-	createPersona(t, s, "A", nil)
-	createPersona(t, s, "B", nil)
-	addContact(t, s, "A", "b", getPeer(t, s, "B"))
-	addContact(t, s, "B", "a", getPeer(t, s, "A"))
+	createPersona(t, s, "A")
+	createPersona(t, s, "B")
+	createContact(t, s, "A", "b", getPeer(t, s, "B"))
+	createContact(t, s, "B", "a", getPeer(t, s, "A"))
 	acs := listContacts(t, s, "A")
 	bcs := listContacts(t, s, "B")
 	require.Len(t, acs, 1)
@@ -53,10 +53,10 @@ func TestAddContact(t *testing.T) {
 
 func TestChannelRW(t *testing.T) {
 	s := newTestServer(t)
-	createPersona(t, s, "A", nil)
-	createPersona(t, s, "B", nil)
-	addContact(t, s, "A", "b", getPeer(t, s, "B"))
-	addContact(t, s, "B", "a", getPeer(t, s, "A"))
+	createPersona(t, s, "A")
+	createPersona(t, s, "B")
+	createContact(t, s, "A", "b", getPeer(t, s, "B"))
+	createContact(t, s, "B", "a", getPeer(t, s, "A"))
 
 	// A invites B to a new channel
 	createChannel(t, s, "A", "chan1", []string{"b"})
@@ -65,18 +65,20 @@ func TestChannelRW(t *testing.T) {
 	msgBody := "hello world"
 	sendMessage(t, s, "A", "chan1", MessageParams{Type: "text", Body: []byte(msgBody)})
 	events := readEvents(t, s, "A", "chan1")
+	t.Log(events)
 	require.Len(t, events, 2)
-	require.Equal(t, msgBody, string(events[1].Message.Body))
+	require.NotNil(t, events[1].Message)
+	require.Equal(t, `"`+msgBody+`"`, string(events[1].Message.Body))
 }
 
-func createChannel(t testing.TB, x API, persona, name string, personas []string) {
+func createChannel(t testing.TB, x API, persona, name string, members []string) {
 	ctx := context.Background()
-	require.NoError(t, x.CreateChannel(ctx, ChannelID{Persona: persona, Name: name}, personas))
+	require.NoError(t, x.CreateChannel(ctx, ChannelID{Persona: persona, Name: name}, ChannelParams{Members: members}))
 }
 
 func listChannels(t testing.TB, x API, persona string) []string {
 	ctx := context.Background()
-	ret, err := x.ListChannels(ctx, persona, "", 0)
+	ret, err := x.ListChannels(ctx, persona, state.TotalSpan[string](), 0)
 	require.NoError(t, err)
 	return ret
 }
@@ -91,12 +93,18 @@ func readEvents(t testing.TB, x API, persona, chanName string) []Event {
 	ctx := context.Background()
 	pairs, err := x.Read(ctx, ChannelID{Persona: persona, Name: chanName}, EventPath{}, 0)
 	require.NoError(t, err)
-	return slices2.Map[Pair, Event, []Pair, []Event](pairs, func(p Pair) Event { return *p.Event })
+	return slices2.Map(pairs, func(p Pair) Event { return *p.Event })
 }
 
-func createPersona(t testing.TB, x API, name string, ids []inet256.ID) {
+func createPersona(t testing.TB, x API, name string) {
 	ctx := context.Background()
-	err := x.CreatePersona(ctx, name, ids)
+	err := x.CreatePersona(ctx, name)
+	require.NoError(t, err)
+}
+
+func joinPersona(t testing.TB, x API, name string, peers []PeerID) {
+	ctx := context.Background()
+	err := x.JoinPersona(ctx, name, peers)
 	require.NoError(t, err)
 }
 
@@ -114,9 +122,11 @@ func getPersona(t testing.TB, x API, name string) *Persona {
 	return p
 }
 
-func addContact(t testing.TB, x API, persona, name string, peerID PeerID) {
+func createContact(t testing.TB, x API, persona, name string, peerID PeerID) {
 	ctx := context.Background()
-	err := x.AddContact(ctx, persona, name, peerID)
+	err := x.CreateContact(ctx, persona, name, Contact{
+		Addrs: []PeerID{peerID},
+	})
 	require.NoError(t, err)
 }
 
@@ -129,9 +139,9 @@ func listContacts(t testing.TB, x API, persona string) []string {
 
 func getPeer(t testing.TB, x API, persona string) PeerID {
 	ctx := context.Background()
-	peerID, err := x.GetPeer(ctx, persona)
+	p, err := x.GetPersona(ctx, persona)
 	require.NoError(t, err)
-	return *peerID
+	return p.LocalIDs[0]
 }
 
 func newTestServer(t testing.TB) *Server {

@@ -12,6 +12,28 @@ import (
 	"github.com/owlmessenger/owl/pkg/feeds"
 )
 
+// createStore allocates a new store ID which wil not be reused
+func createStore(tx *sqlx.Tx) (ret int, err error) {
+	err = tx.Get(&ret, `INSERT INTO stores VALUES (NULL) RETURNING id`)
+	return ret, err
+}
+
+// dropStore deletes a store and any blobs not included in another store.
+func dropStore(tx *sqlx.Tx, storeID int) error {
+	if _, err := tx.Exec(`DELETE FROM stores WHERE id = ?`, storeID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM store_blobs WHERE store_id = ?`, storeID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM blobs WHERE id NOT IN (
+		SELECT blob_id FROM store_blobs
+	)`); err != nil {
+		return err
+	}
+	return nil
+}
+
 type txStore struct {
 	tx    *sqlx.Tx
 	intID int
@@ -84,11 +106,12 @@ func (s *txStore) Delete(ctx context.Context, id cadata.ID) error {
 	return nil
 }
 
-func (s *txStore) List(ctx context.Context, first cadata.ID, ids []cadata.ID) (int, error) {
+func (s *txStore) List(ctx context.Context, span cadata.Span, ids []cadata.ID) (int, error) {
+	begin := cadata.BeginFromSpan(span)
 	rows, err := s.tx.Query(`SELECT blob_id FROM store_blobs
 		WHERE store_id = ? AND blob_id >= ?
 		LIMIT ?
-	`, s.intID, first[:], len(ids))
+	`, s.intID, begin[:], len(ids))
 	if err != nil {
 		return 0, err
 	}
@@ -105,10 +128,7 @@ func (s *txStore) List(ctx context.Context, first cadata.ID, ids []cadata.ID) (i
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
-	if n < len(ids) {
-		err = cadata.ErrEndOfList
-	}
-	return n, err
+	return n, nil
 }
 
 func (s *txStore) MaxSize() int {
@@ -134,14 +154,14 @@ func newStore(db *sqlx.DB, intID int) *store {
 }
 
 func (s *store) Post(ctx context.Context, data []byte) (cadata.ID, error) {
-	return dbutil.Do1Tx(ctx, s.db, func(tx *sqlx.Tx) (cadata.ID, error) {
+	return dbutil.DoTx1(ctx, s.db, func(tx *sqlx.Tx) (cadata.ID, error) {
 		s2 := txStore{tx: tx, intID: s.intID}
 		return s2.Post(ctx, data)
 	})
 }
 
 func (s *store) Get(ctx context.Context, id cadata.ID, buf []byte) (int, error) {
-	return dbutil.Do1Tx(ctx, s.db, func(tx *sqlx.Tx) (int, error) {
+	return dbutil.DoTx1(ctx, s.db, func(tx *sqlx.Tx) (int, error) {
 		s2 := txStore{tx: tx, intID: s.intID}
 		return s2.Get(ctx, id, buf)
 	})
@@ -161,10 +181,10 @@ func (s *store) Delete(ctx context.Context, id cadata.ID) error {
 	})
 }
 
-func (s *store) List(ctx context.Context, first cadata.ID, ids []cadata.ID) (int, error) {
-	return dbutil.Do1Tx(ctx, s.db, func(tx *sqlx.Tx) (int, error) {
+func (s *store) List(ctx context.Context, span cadata.Span, ids []cadata.ID) (int, error) {
+	return dbutil.DoTx1(ctx, s.db, func(tx *sqlx.Tx) (int, error) {
 		s2 := txStore{tx: tx, intID: s.intID}
-		return s2.List(ctx, first, ids)
+		return s2.List(ctx, span, ids)
 	})
 }
 

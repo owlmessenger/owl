@@ -3,6 +3,7 @@ package owl
 import (
 	"context"
 
+	"github.com/brendoncarroll/go-state"
 	"github.com/inet256/inet256/pkg/inet256"
 )
 
@@ -27,9 +28,9 @@ import (
 // }
 
 func ForEachChannel(ctx context.Context, s ChannelAPI, persona string, fn func(string) error) error {
-	var begin string
+	span := state.TotalSpan[string]()
 	for {
-		names, err := s.ListChannels(ctx, persona, begin, 128)
+		names, err := s.ListChannels(ctx, persona, span, 128)
 		if err != nil {
 			return err
 		}
@@ -37,7 +38,7 @@ func ForEachChannel(ctx context.Context, s ChannelAPI, persona string, fn func(s
 			if err := fn(name); err != nil {
 				return err
 			}
-			begin = name + "\x00"
+			span = span.WithLowerExcl(name)
 		}
 		if len(names) == 0 {
 			return nil
@@ -66,5 +67,5 @@ func ForEachEvent(ctx context.Context, s ChannelAPI, cid ChannelID, fn func(p Pa
 }
 
 func ParseB64PeerID(x []byte) (PeerID, error) {
-	return inet256.ParseAddrB64(x)
+	return inet256.ParseAddrBase64(x)
 }

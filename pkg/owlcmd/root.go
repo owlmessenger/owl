@@ -11,9 +11,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type loadFunc = func(dirpath string) (owl.API, error)
-type initFunc = func(dirpath string) error
-
 var ctx = context.Background()
 
 func NewRootCmd() *cobra.Command {
@@ -49,6 +46,7 @@ func NewRootCmd() *cobra.Command {
 		newChatCmd(func() owl.API { return s }),
 		newPersonaCmd(func() owl.PersonaAPI { return s }),
 		newChannelCmd(func() owl.ChannelAPI { return s }),
+		newContactCmd(func() owl.ContactAPI { return s }),
 	} {
 		cmd.AddCommand(c)
 	}

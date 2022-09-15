@@ -38,7 +38,7 @@ func Merge[T any, S ~[]T](a, b S, lt func(a, b T) bool) (out S) {
 	return out
 }
 
-func Map[A, B any, SA ~[]A, SB ~[]B](xs SA, fn func(A) B) (ys SB) {
+func Map[A, B any, SA ~[]A, SB []B](xs SA, fn func(A) B) (ys SB) {
 	ys = make(SB, len(xs))
 	for i := range xs {
 		ys[i] = fn(xs[i])

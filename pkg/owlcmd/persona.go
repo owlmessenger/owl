@@ -45,6 +45,17 @@ func newPersonaCreateCmd(sf func() owl.PersonaAPI) *cobra.Command {
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
+			return sf().CreatePersona(ctx, name)
+		},
+	}
+}
+
+func newPersonaJoinCmd(sf func() owl.PersonaAPI) *cobra.Command {
+	return &cobra.Command{
+		Use:  "join",
+		Args: cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
 			idb64s := args[1:]
 			var ids []owl.PeerID
 			for _, b64s := range idb64s {
@@ -54,7 +65,7 @@ func newPersonaCreateCmd(sf func() owl.PersonaAPI) *cobra.Command {
 				}
 				ids = append(ids, id)
 			}
-			return sf().CreatePersona(ctx, name, ids)
+			return sf().JoinPersona(ctx, name, ids)
 		},
 	}
 }
