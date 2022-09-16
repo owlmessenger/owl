@@ -31,10 +31,6 @@ type personaServer struct {
 	id      int
 	members []PeerID
 
-	contactSetCtrl *feedController[contactset.State]
-	directoryCtrl  *feedController[directory.State]
-	dmCtrl         *feedController[directmsg.State]
-
 	mu    sync.Mutex
 	nodes map[PeerID]*owlnet.Node
 	cf    context.CancelFunc
@@ -53,27 +49,6 @@ func newPersonaServer(db *sqlx.DB, inetsrv inet256.Service, personaID int, membe
 		nodes: make(map[inet256.Addr]*owlnet.Node),
 		cf:    cf,
 	}
-	ps.contactSetCtrl = newFeedController(fcParams[contactset.State]{
-		Context:      ctx,
-		DB:           db,
-		GetNode:      ps.getNode,
-		ProtocolName: "contactset@v0",
-		GetProtocol:  ps.newContactSetProtocol,
-	})
-	ps.directoryCtrl = newFeedController(fcParams[directory.State]{
-		Context:      ctx,
-		DB:           db,
-		GetNode:      ps.getNode,
-		ProtocolName: "directory@v0",
-		GetProtocol:  ps.newDirectoryProtocol,
-	})
-	ps.dmCtrl = newFeedController(fcParams[directmsg.State]{
-		Context:      ctx,
-		DB:           db,
-		GetNode:      ps.getNode,
-		ProtocolName: DirectMessageV0,
-		GetProtocol:  ps.newDirectMsgProtocol,
-	})
 	ps.eg.Go(func() error { return ps.run(ctx) })
 	return ps
 }
@@ -98,14 +73,7 @@ func (ps *personaServer) readLoop(ctx context.Context, n *owlnet.Node) error {
 					logctx.Errorf(ctx, "%v", err)
 					return nil
 				}
-				allow, err := ps.dmCtrl.CanRead(ctx, feedID)
-				if err != nil {
-					logctx.Errorf(ctx, "opening store: %v", err)
-					return nil
-				}
-				if !allow {
-					return nil
-				}
+				// TODO: do CanRead check
 				storeID, err := lookupFeedStore(ps.db, feedID)
 				if err != nil {
 					logctx.Errorf(ctx, "%v", err)
@@ -150,7 +118,7 @@ func (ps *personaServer) viewContactSet(ctx context.Context) (*contactset.State,
 	if err != nil {
 		return nil, nil, err
 	}
-	return ps.contactSetCtrl.View(ctx, feedID)
+	return viewFeed[contactset.State](ps.db, feedID)
 }
 
 func (ps *personaServer) modifyDirectory(ctx context.Context, fn func(s cadata.Store, x directory.State) (*directory.State, error)) error {
@@ -158,13 +126,21 @@ func (ps *personaServer) modifyDirectory(ctx context.Context, fn func(s cadata.S
 	if err != nil {
 		return err
 	}
-	peerID, err := ps.getLocalPeer(ctx)
+	author, err := ps.getLocalPeer(ctx)
 	if err != nil {
 		return err
 	}
-	return ps.directoryCtrl.Modify(ctx, feedID, peerID, func(feed *feeds.Feed[contactset.State], s cadata.Store) error {
-		return feed.Modify(ctx, peerID, func(prev []feeds.Ref, x directory.State) (*directory.State, error) {
-			return fn(s, x)
+	type T = directory.State
+	return dbutil.DoTx(ctx, ps.db, func(tx *sqlx.Tx) error {
+		return modifyFeed(tx, feedID, author, func(x feeds.State[T], sf, s0 cadata.Store) (*feeds.State[T], error) {
+			f := feeds.New(ps.newContactSetProtocol(s0), x, sf)
+			if err := f.Modify(ctx, author, func(prev []feeds.Ref, x T) (*T, error) {
+				return fn(s0, x)
+			}); err != nil {
+				return nil, err
+			}
+			y := f.GetState()
+			return &y, nil
 		})
 	})
 }
@@ -174,7 +150,7 @@ func (ps *personaServer) viewDirectory(ctx context.Context) (*directory.State, c
 	if err != nil {
 		return nil, nil, err
 	}
-	return ps.directoryCtrl.View(ctx, feedID)
+	return viewFeed[directory.State](ps.db, feedID)
 }
 
 func (ps *personaServer) modifyDM(ctx context.Context, name string, fn func(cadata.Store, directmsg.State, PeerID) (*directmsg.State, error)) error {
@@ -186,9 +162,16 @@ func (ps *personaServer) modifyDM(ctx context.Context, name string, fn func(cada
 	if err != nil {
 		return err
 	}
-	return ps.dmCtrl.Modify(ctx, feedID, author, func(feed *feeds.Feed[directmsg.State], s cadata.Store) error {
-		return feed.Modify(ctx, author, func(prev []feeds.Ref, x directmsg.State) (*directmsg.State, error) {
-			return fn(s, x, author)
+	return dbutil.DoTx(ctx, ps.db, func(tx *sqlx.Tx) error {
+		return modifyFeed(tx, feedID, author, func(x feeds.State[directmsg.State], sf, s0 cadata.Store) (*feeds.State[directmsg.State], error) {
+			f := feeds.New(ps.newContactSetProtocol(s0), x, sf)
+			if err := f.Modify(ctx, author, func(prev []feeds.Ref, x directmsg.State) (*directmsg.State, error) {
+				return fn(s0, x, author)
+			}); err != nil {
+				return nil, err
+			}
+			y := f.GetState()
+			return &y, nil
 		})
 	})
 }
@@ -198,7 +181,7 @@ func (ps *personaServer) viewDM(ctx context.Context, name string) (*directmsg.St
 	if err != nil {
 		return nil, nil, err
 	}
-	return ps.dmCtrl.View(ctx, feedID)
+	return viewFeed[directmsg.State](ps.db, feedID)
 }
 
 func (s *personaServer) getNode(ctx context.Context, id PeerID) (*owlnet.Node, error) {
