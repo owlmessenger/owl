@@ -94,7 +94,7 @@ func compare[T ~[32]byte](a, b T) int {
 
 func dedupSorted[T comparable, S ~[]T](x S) S {
 	ret := slices.Clone(x)
-	return slices2.DedupSorted(ret, func(a, b T) bool {
+	return slices2.DedupSortedFunc(ret, func(a, b T) bool {
 		return a == b
 	})
 }

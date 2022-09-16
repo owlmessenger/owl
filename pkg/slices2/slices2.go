@@ -1,7 +1,24 @@
 package slices2
 
+import "golang.org/x/sync/errgroup"
+
 // DedupSorted removes duplicate items according to eq
-func DedupSorted[T any, S ~[]T](xs S, eq func(a, b T) bool) S {
+// It doesn't actually matter how the items are sorted as long as items which could be the same are adjacent.
+func DedupSorted[T comparable, S ~[]T](xs S) S {
+	var deleted int
+	for i := range xs {
+		if i > 0 && xs[i] == xs[i-1] {
+			deleted++
+		} else {
+			xs[i-deleted] = xs[i]
+		}
+	}
+	return xs[:len(xs)-deleted]
+}
+
+// DedupSortedFunc removes duplicate items according to eq
+// It doesn't actually matter how the items are sorted as long as items which could be the same are adjacent.
+func DedupSortedFunc[T any, S ~[]T](xs S, eq func(a, b T) bool) S {
 	var deleted int
 	for i := range xs {
 		if i > 0 && eq(xs[i], xs[i-1]) {
@@ -44,4 +61,25 @@ func Map[A, B any, SA ~[]A, SB []B](xs SA, fn func(A) B) (ys SB) {
 		ys[i] = fn(xs[i])
 	}
 	return ys
+}
+
+// ParMap calls fn on each item in xs in parallel.
+func ParMap[X, Y any, SX ~[]X](xs SX, fn func(X) (Y, error)) ([]Y, error) {
+	ys := make([]Y, len(xs))
+	eg := errgroup.Group{}
+	for i := range xs {
+		i := i
+		eg.Go(func() error {
+			y, err := fn(xs[i])
+			if err != nil {
+				return err
+			}
+			ys[i] = y
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+	return ys, nil
 }

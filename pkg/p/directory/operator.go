@@ -1,6 +1,7 @@
 package directory
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,11 +11,14 @@ import (
 	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/gotvc/got/pkg/gotkv/kvstreams"
 	"github.com/owlmessenger/owl/pkg/feeds"
+	"github.com/owlmessenger/owl/pkg/p/contactset"
+	"github.com/owlmessenger/owl/pkg/slices2"
+	"golang.org/x/exp/slices"
 )
 
 type DirectMessage struct {
-	Members []string `json:"members"`
-	Feed    feeds.ID `json:"feed_id"`
+	Feed    feeds.ID         `json:"feed_id"`
+	Members []contactset.UID `json:"members"`
 }
 
 type Room struct {
@@ -68,6 +72,13 @@ func (o *Operator) Exists(ctx context.Context, s cadata.Store, x State, name str
 }
 
 func (o *Operator) Put(ctx context.Context, s cadata.Store, x State, name string, v Value) (*State, error) {
+	switch {
+	case v.DirectMessage != nil:
+		slices.SortFunc(v.DirectMessage.Members, func(a, b contactset.UID) bool {
+			return bytes.Compare(a[:], b[:]) < 0
+		})
+		v.DirectMessage.Members = slices2.DedupSorted(v.DirectMessage.Members)
+	}
 	data, err := json.Marshal(v)
 	if err != nil {
 		return nil, err

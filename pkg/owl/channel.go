@@ -15,9 +15,11 @@ import (
 
 	"github.com/owlmessenger/owl/pkg/dbutil"
 	"github.com/owlmessenger/owl/pkg/feeds"
+	"github.com/owlmessenger/owl/pkg/p/contactset"
 	"github.com/owlmessenger/owl/pkg/p/directmsg"
 	"github.com/owlmessenger/owl/pkg/p/directory"
 	"github.com/owlmessenger/owl/pkg/p/room"
+	"github.com/owlmessenger/owl/pkg/slices2"
 )
 
 var _ ChannelAPI = &Server{}
@@ -28,18 +30,20 @@ func (s *Server) CreateChannel(ctx context.Context, cid ChannelID, p ChannelPara
 		return err
 	}
 
-	// collect peer addresses
 	ps, err := s.getPersonaServer(ctx, cid.Persona)
 	if err != nil {
 		return err
 	}
-	var peers []PeerID
-	for _, member := range p.Members {
-		c, err := s.GetContact(ctx, cid.Persona, member)
+	// collect peer addresses
+	contactUIDs, err := slices2.ParMap(p.Members, func(x string) (contactset.UID, error) {
+		id, err := ps.lookupContactUID(ctx, x)
 		if err != nil {
-			return err
+			return contactset.UID{}, nil
 		}
-		peers = append(peers, c.Addrs...)
+		return *id, nil
+	})
+	if err != nil {
+		return err
 	}
 
 	var (
@@ -57,7 +61,7 @@ func (s *Server) CreateChannel(ctx context.Context, cid ChannelID, p ChannelPara
 		newDirValue = func(fid feeds.ID) directory.Value {
 			return directory.Value{
 				DirectMessage: &directory.DirectMessage{
-					Members: p.Members,
+					Members: contactUIDs,
 					Feed:    fid,
 				},
 			}

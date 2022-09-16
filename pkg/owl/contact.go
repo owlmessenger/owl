@@ -28,8 +28,8 @@ func (s *Server) DeleteContact(ctx context.Context, persona, name string) error 
 		return err
 	}
 	return ps.modifyContactSet(ctx, func(s cadata.Store, x contactset.State) (*contactset.State, error) {
-		op := contactset.New()
-		return op.Delete(ctx, s, x, name)
+		// TODO
+		return &x, nil
 	})
 }
 
@@ -43,7 +43,7 @@ func (s *Server) ListContact(ctx context.Context, persona string) ([]string, err
 		return nil, err
 	}
 	op := contactset.New()
-	return op.List(ctx, store, *x)
+	return op.ListNames(ctx, store, *x)
 }
 
 func (s *Server) GetContact(ctx context.Context, persona, name string) (*Contact, error) {

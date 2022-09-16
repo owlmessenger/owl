@@ -294,3 +294,12 @@ func (ps *personaServer) whoIs(ctx context.Context, peerID PeerID) (string, erro
 	op := contactset.New()
 	return op.WhoIs(ctx, store, *x, peerID)
 }
+
+func (ps *personaServer) lookupContactUID(ctx context.Context, name string) (*contactset.UID, error) {
+	x, store, err := ps.viewContactSet(ctx)
+	if err != nil {
+		return nil, err
+	}
+	op := contactset.New()
+	return op.Lookup(ctx, store, *x, name)
+}
