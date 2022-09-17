@@ -19,7 +19,7 @@ func newContactCmd(sf func() owl.ContactAPI) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			persona := args[0]
-			contacts, err := s.ListContact(ctx, persona)
+			contacts, err := s.ListContact(ctx, &owl.ListContactReq{Persona: persona})
 			if err != nil {
 				return err
 			}

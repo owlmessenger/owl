@@ -7,11 +7,12 @@ import (
 
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/brendoncarroll/go-state/cadata/storetest"
+	"github.com/owlmessenger/owl/pkg/dbutil"
 	"github.com/stretchr/testify/require"
 )
 
 func TestStore(t *testing.T) {
-	db := newTestDB(t)
+	db := dbutil.NewTestDB(t)
 	require.NoError(t, setupDB(context.TODO(), db))
 
 	var n int32

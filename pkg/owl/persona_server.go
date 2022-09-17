@@ -259,13 +259,13 @@ func (s *personaServer) getChannelFeed(ctx context.Context, name string) (int, e
 	}
 }
 
-func (ps *personaServer) resolveChannel(ctx context.Context, cid ChannelID) (*directory.Value, error) {
+func (ps *personaServer) resolveChannel(ctx context.Context, name string) (*directory.Value, error) {
 	state, store, err := ps.viewDirectory(ctx)
 	if err != nil {
 		return nil, err
 	}
 	op := directory.New()
-	return op.Get(ctx, store, *state, cid.Name)
+	return op.Get(ctx, store, *state, name)
 }
 
 func (ps *personaServer) newContactSetProtocol(s cadata.Store) feeds.Protocol[contactset.State] {

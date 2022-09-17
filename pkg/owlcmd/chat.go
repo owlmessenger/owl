@@ -41,7 +41,11 @@ func newChatCmd(sf func() owl.API) *cobra.Command {
 		eg.Go(func() error {
 			scn := bufio.NewScanner(in)
 			for scn.Scan() {
-				if err := s.Send(ctx, cid, owl.NewText(scn.Text())); err != nil {
+				if err := s.Send(ctx, &owl.SendReq{
+					Persona: *persona,
+					Name:    channel,
+					Params:  owl.NewText(scn.Text()),
+				}); err != nil {
 					log.Println("error:", err)
 				}
 			}

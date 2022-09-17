@@ -25,17 +25,17 @@ import (
 var _ ChannelAPI = &Server{}
 
 // CreateChannel creates a new channel
-func (s *Server) CreateChannel(ctx context.Context, cid ChannelID, p ChannelParams) error {
+func (s *Server) CreateChannel(ctx context.Context, req *CreateChannelReq) error {
 	if err := s.Init(ctx); err != nil {
 		return err
 	}
 
-	ps, err := s.getPersonaServer(ctx, cid.Persona)
+	ps, err := s.getPersonaServer(ctx, req.Persona)
 	if err != nil {
 		return err
 	}
 	// collect peer addresses
-	contactUIDs, err := slices2.ParMap(p.Members, func(x string) (contactset.UID, error) {
+	contactUIDs, err := slices2.ParMap(req.Members, func(x string) (contactset.UID, error) {
 		id, err := ps.lookupContactUID(ctx, x)
 		if err != nil {
 			return contactset.UID{}, nil
@@ -50,10 +50,10 @@ func (s *Server) CreateChannel(ctx context.Context, cid ChannelID, p ChannelPara
 		newFeed     func(tx *sqlx.Tx) (int, error)
 		newDirValue func(feeds.ID) directory.Value
 	)
-	switch p.Type {
+	switch req.Type {
 	case DirectMessageV0:
 		newFeed = func(tx *sqlx.Tx) (int, error) {
-			return createFeed(tx, p.Type, func(s cadata.Store) (*directmsg.State, error) {
+			return createFeed(tx, req.Type, func(s cadata.Store) (*directmsg.State, error) {
 				op := directmsg.New()
 				return op.NewEmpty(ctx, s)
 			})
@@ -67,7 +67,7 @@ func (s *Server) CreateChannel(ctx context.Context, cid ChannelID, p ChannelPara
 			}
 		}
 	default:
-		return fmt.Errorf("%q is not a valid channel type", p.Type)
+		return fmt.Errorf("%q is not a valid channel type", req.Type)
 	}
 
 	// create the new feed and channel state
@@ -91,33 +91,33 @@ func (s *Server) CreateChannel(ctx context.Context, cid ChannelID, p ChannelPara
 	// add the channel to the persona's directory
 	return ps.modifyDirectory(ctx, func(s cadata.Store, x directory.State) (*directory.State, error) {
 		op := directory.New()
-		return op.Put(ctx, s, x, cid.Name, newDirValue(*rootID))
+		return op.Put(ctx, s, x, req.Name, newDirValue(*rootID))
 	})
 }
 
 // JoinChannel adds an existing channel feed identified by cid.
-func (s *Server) JoinChannel(ctx context.Context, cid ChannelID, fid feeds.ID) error {
+func (s *Server) JoinChannel(ctx context.Context, req *JoinChannelReq) error {
 	if err := s.Init(ctx); err != nil {
 		return err
 	}
-	ps, err := s.getPersonaServer(ctx, cid.Persona)
+	ps, err := s.getPersonaServer(ctx, req.Persona)
 	if err != nil {
 		return err
 	}
 	return ps.modifyDirectory(ctx, func(s cadata.Store, x directory.State) (*directory.State, error) {
 		op := directory.New()
-		if exists, err := op.Exists(ctx, s, x, cid.Name); err != nil {
+		if exists, err := op.Exists(ctx, s, x, req.Name); err != nil {
 			return nil, err
 		} else if exists {
 			return nil, errors.New("channel already exists with that name")
 		}
-		return op.Put(ctx, s, x, cid.Name, directory.Value{
-			Room: &directory.Room{Feed: fid},
+		return op.Put(ctx, s, x, req.Name, directory.Value{
+			Room: &directory.Room{Feed: req.Root},
 		})
 	})
 }
 
-func (s *Server) DeleteChannel(ctx context.Context, cid ChannelID) error {
+func (s *Server) DeleteChannel(ctx context.Context, cid *ChannelID) error {
 	if err := s.Init(ctx); err != nil {
 		return err
 	}
@@ -131,14 +131,16 @@ func (s *Server) DeleteChannel(ctx context.Context, cid ChannelID) error {
 	})
 }
 
-func (s *Server) ListChannels(ctx context.Context, persona string, span state.Span[string], limit int) ([]string, error) {
+func (s *Server) ListChannels(ctx context.Context, req *ListChannelReq) ([]string, error) {
 	if err := s.Init(ctx); err != nil {
 		return nil, err
 	}
+	limit := req.Limit
 	if limit < 1 {
 		limit = math.MaxInt
 	}
-	ps, err := s.getPersonaServer(ctx, persona)
+	span := state.TotalSpan[string]().WithLowerIncl(req.Begin)
+	ps, err := s.getPersonaServer(ctx, req.Persona)
 	if err != nil {
 		return nil, err
 	}
@@ -150,12 +152,12 @@ func (s *Server) ListChannels(ctx context.Context, persona string, span state.Sp
 	return op.List(ctx, store, *x, span)
 }
 
-func (s *Server) GetChannel(ctx context.Context, cid ChannelID) (*ChannelInfo, error) {
+func (s *Server) GetChannel(ctx context.Context, cid *ChannelID) (*ChannelInfo, error) {
 	ps, err := s.getPersonaServer(ctx, cid.Persona)
 	if err != nil {
 		return nil, err
 	}
-	v, err := ps.resolveChannel(ctx, cid)
+	v, err := ps.resolveChannel(ctx, cid.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -170,49 +172,50 @@ func (s *Server) GetChannel(ctx context.Context, cid ChannelID) (*ChannelInfo, e
 	}
 }
 
-func (s *Server) Send(ctx context.Context, cid ChannelID, mp MessageParams) error {
+func (s *Server) Send(ctx context.Context, req *SendReq) error {
 	if err := s.Init(ctx); err != nil {
 		return err
 	}
-	ps, err := s.getPersonaServer(ctx, cid.Persona)
+	ps, err := s.getPersonaServer(ctx, req.Persona)
 	if err != nil {
 		return err
 	}
-	return ps.modifyDM(ctx, cid.Name, func(s cadata.Store, x directmsg.State, author PeerID) (*directmsg.State, error) {
+	return ps.modifyDM(ctx, req.Name, func(s cadata.Store, x directmsg.State, author PeerID) (*directmsg.State, error) {
 		op := directmsg.New()
 		return op.Append(ctx, s, x, directmsg.MessageParams{
 			Author:    author,
 			Timestamp: tai64.FromGoTime(time.Now()),
-			Type:      mp.Type,
-			Body:      mp.Body,
+			Type:      req.Params.Type,
+			Body:      req.Params.Body,
 		})
 	})
 }
 
-func (s *Server) Read(ctx context.Context, cid ChannelID, begin EntryPath, limit int) ([]Entry, error) {
+func (s *Server) Read(ctx context.Context, req *ReadReq) ([]Entry, error) {
 	if err := s.Init(ctx); err != nil {
 		return nil, err
 	}
+	limit := req.Limit
 	if limit <= 0 {
 		limit = 1024
 	}
-	ps, err := s.getPersonaServer(ctx, cid.Persona)
+	ps, err := s.getPersonaServer(ctx, req.Persona)
 	if err != nil {
 		return nil, err
 	}
-	v, err := ps.resolveChannel(ctx, cid)
+	v, err := ps.resolveChannel(ctx, req.Name)
 	if err != nil {
 		return nil, err
 	}
 	switch {
 	case v.DirectMessage != nil:
-		x, store, err := ps.viewDM(ctx, cid.Name)
+		x, store, err := ps.viewDM(ctx, req.Name)
 		if err != nil {
 			return nil, err
 		}
 		op := directmsg.New()
 		buf := make([]directmsg.Message, 128)
-		n, err := op.Read(ctx, store, *x, room.Path(begin), buf)
+		n, err := op.Read(ctx, store, *x, room.Path(req.Begin), buf)
 		if err != nil {
 			return nil, err
 		}

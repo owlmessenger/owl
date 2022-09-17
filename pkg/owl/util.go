@@ -30,7 +30,12 @@ import (
 func ForEachChannel(ctx context.Context, s ChannelAPI, persona string, fn func(string) error) error {
 	span := state.TotalSpan[string]()
 	for {
-		names, err := s.ListChannels(ctx, persona, span, 128)
+		begin, _ := span.LowerBound()
+		names, err := s.ListChannels(ctx, &ListChannelReq{
+			Persona: persona,
+			Begin:   begin,
+			Limit:   128,
+		})
 		if err != nil {
 			return err
 		}
@@ -49,7 +54,13 @@ func ForEachChannel(ctx context.Context, s ChannelAPI, persona string, fn func(s
 func ForEachEntry(ctx context.Context, s ChannelAPI, cid ChannelID, fn func(Entry) error) error {
 	var begin EntryPath
 	for {
-		pairs, err := s.Read(ctx, cid, begin, 128)
+		pairs, err := s.Read(ctx, &ReadReq{
+			Persona: cid.Persona,
+			Name:    cid.Name,
+
+			Begin: begin,
+			Limit: 128,
+		})
 		if err != nil {
 			return err
 		}

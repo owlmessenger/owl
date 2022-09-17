@@ -11,19 +11,19 @@ import (
 var _ ContactAPI = &Server{}
 
 // CreateContact looks up the contactset for persona, then puts an entry (name, contact) in that set.
-func (s *Server) CreateContact(ctx context.Context, persona string, name string, c Contact) error {
-	ps, err := s.getPersonaServer(ctx, persona)
+func (s *Server) CreateContact(ctx context.Context, req *CreateContactReq) error {
+	ps, err := s.getPersonaServer(ctx, req.Persona)
 	if err != nil {
 		return err
 	}
 	return ps.modifyContactSet(ctx, func(s cadata.Store, x contactset.State) (*contactset.State, error) {
 		op := contactset.New()
-		return op.Create(ctx, s, x, name, c.Addrs)
+		return op.Create(ctx, s, x, req.Name, req.Peers)
 	})
 }
 
-func (s *Server) DeleteContact(ctx context.Context, persona, name string) error {
-	ps, err := s.getPersonaServer(ctx, persona)
+func (s *Server) DeleteContact(ctx context.Context, req *DeleteContactReq) error {
+	ps, err := s.getPersonaServer(ctx, req.Persona)
 	if err != nil {
 		return err
 	}
@@ -33,8 +33,8 @@ func (s *Server) DeleteContact(ctx context.Context, persona, name string) error 
 	})
 }
 
-func (s *Server) ListContact(ctx context.Context, persona string) ([]string, error) {
-	ps, err := s.getPersonaServer(ctx, persona)
+func (s *Server) ListContact(ctx context.Context, req *ListContactReq) ([]string, error) {
+	ps, err := s.getPersonaServer(ctx, req.Persona)
 	if err != nil {
 		return nil, err
 	}
@@ -46,8 +46,8 @@ func (s *Server) ListContact(ctx context.Context, persona string) ([]string, err
 	return op.ListNames(ctx, store, *x)
 }
 
-func (s *Server) GetContact(ctx context.Context, persona, name string) (*Contact, error) {
-	ps, err := s.getPersonaServer(ctx, persona)
+func (s *Server) GetContact(ctx context.Context, req *GetContactReq) (*Contact, error) {
+	ps, err := s.getPersonaServer(ctx, req.Persona)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func (s *Server) GetContact(ctx context.Context, persona, name string) (*Contact
 		return nil, err
 	}
 	op := contactset.New()
-	cinfo, err := op.Get(ctx, store, *x, name)
+	cinfo, err := op.Get(ctx, store, *x, req.Name)
 	if err != nil {
 		return nil, err
 	}

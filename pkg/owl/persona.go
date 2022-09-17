@@ -15,7 +15,7 @@ import (
 	"github.com/owlmessenger/owl/pkg/p/directory"
 )
 
-func (s *Server) CreatePersona(ctx context.Context, name string) error {
+func (s *Server) CreatePersona(ctx context.Context, req *CreatePersonaReq) error {
 	if err := s.Init(ctx); err != nil {
 		return err
 	}
@@ -40,7 +40,7 @@ func (s *Server) CreatePersona(ctx context.Context, name string) error {
 		if err != nil {
 			return err
 		}
-		personaID, err := s.createPersona(tx, name, csFeed, dirFeed)
+		personaID, err := s.createPersona(tx, req.Name, csFeed, dirFeed)
 		if err != nil {
 			return err
 		}
@@ -48,7 +48,7 @@ func (s *Server) CreatePersona(ctx context.Context, name string) error {
 	})
 }
 
-func (s *Server) JoinPersona(ctx context.Context, name string, ids []inet256.Addr) error {
+func (s *Server) JoinPersona(ctx context.Context, req *JoinPersonaReq) error {
 	panic("not implemented")
 	return nil
 }
@@ -68,12 +68,12 @@ func (s *Server) ListPersonas(ctx context.Context) (ret []string, _ error) {
 	return ret, nil
 }
 
-func (s *Server) GetPersona(ctx context.Context, name string) (*Persona, error) {
+func (s *Server) GetPersona(ctx context.Context, req *GetPersonaReq) (*Persona, error) {
 	if err := s.Init(ctx); err != nil {
 		return nil, err
 	}
 	return dbutil.DoTx1(ctx, s.db, func(tx *sqlx.Tx) (*Persona, error) {
-		intID, err := s.lookupPersona(tx, name)
+		intID, err := s.lookupPersona(tx, req.Name)
 		if err != nil {
 			return nil, err
 		}
@@ -103,7 +103,7 @@ func (s *Server) GetPersona(ctx context.Context, name string) (*Persona, error) 
 	})
 }
 
-func (s *Server) ExpandPersona(ctx context.Context, name string, id inet256.ID) error {
+func (s *Server) ExpandPersona(ctx context.Context, req *ExpandPersonaReq) error {
 	if err := s.Init(ctx); err != nil {
 		return err
 	}
@@ -113,7 +113,7 @@ func (s *Server) ExpandPersona(ctx context.Context, name string, id inet256.ID) 
 	return nil
 }
 
-func (s *Server) ShrinkPersona(ctx context.Context, name string, id inet256.ID) error {
+func (s *Server) ShrinkPersona(ctx context.Context, req *ShrinkPersonaReq) error {
 	if err := s.Init(ctx); err != nil {
 		return err
 	}
@@ -121,7 +121,7 @@ func (s *Server) ShrinkPersona(ctx context.Context, name string, id inet256.ID) 
 		WHERE id = ? AND persona_id IN (
 			SELECT id FROM personas WHERE name = ?
 		)
-	`, id, name)
+	`, req.Peer[:], req.Name)
 	return err
 }
 
