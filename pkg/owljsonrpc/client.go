@@ -161,6 +161,11 @@ func (c *Client) Wait(ctx context.Context, req *owl.WaitReq) (owl.EntryPath, err
 	return res, nil
 }
 
+func (c *Client) Sync(ctx context.Context, req *owl.SyncReq) error {
+	var res struct{}
+	return c.c.Call(ctx, currentMethodName(), req, &res)
+}
+
 func currentMethodName() string {
 	// https://stackoverflow.com/questions/52507676/name-of-current-function
 	fpcs := make([]uintptr, 1)

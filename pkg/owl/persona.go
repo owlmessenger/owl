@@ -135,33 +135,21 @@ func (s *Server) ExpandPersona(ctx context.Context, req *ExpandPersonaReq) error
 	}
 	// TODO: use node to lookup public key
 	// add public key
-	panic("not implemented")
-	return nil
+	return s.reloadPersona(ctx, req.Name)
 }
 
 func (s *Server) ShrinkPersona(ctx context.Context, req *ShrinkPersonaReq) error {
 	if err := s.Init(ctx); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM persona_keys
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM persona_keys
 		WHERE id = ? AND persona_id IN (
 			SELECT id FROM personas WHERE name = ?
 		)
-	`, req.Peer[:], req.Name)
-	return err
-}
-
-func (s *Server) AddPrivateKey(ctx context.Context, name string, privateKey inet256.PrivateKey) error {
-	if err := s.Init(ctx); err != nil {
+	`, req.Peer[:], req.Name); err != nil {
 		return err
 	}
-	return dbutil.DoTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		pid, err := s.lookupPersona(tx, name)
-		if err != nil {
-			return err
-		}
-		return s.addPrivateKey(tx, pid, privateKey)
-	})
+	return s.reloadPersona(ctx, req.Name)
 }
 
 // GetLocalPeer returns a PeerID to use for communication

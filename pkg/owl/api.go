@@ -252,8 +252,20 @@ type ChannelAPI interface {
 	Wait(ctx context.Context, req *WaitReq) (EntryPath, error)
 }
 
+type SyncTarget struct {
+	Channel   *ChannelID `json:"channel"`
+	Contacts  *string    `json:"contacts"`
+	Directory *string    `json:"directory"`
+}
+
+type SyncReq struct {
+	Targets []SyncTarget `json:"targets"`
+}
+
 type API interface {
 	PersonaAPI
 	ContactAPI
 	ChannelAPI
+
+	Sync(ctx context.Context, req *SyncReq) error
 }

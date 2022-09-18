@@ -31,6 +31,10 @@ type personaServer struct {
 	id      int
 	members []PeerID
 
+	contactRep   *replicator[contactset.State]
+	directoryRep *replicator[directory.State]
+	dmRep        *replicator[directmsg.State]
+
 	mu    sync.Mutex
 	nodes map[PeerID]*owlnet.Node
 	cf    context.CancelFunc
@@ -49,13 +53,31 @@ func newPersonaServer(db *sqlx.DB, inetsrv inet256.Service, personaID int, membe
 		nodes: make(map[inet256.Addr]*owlnet.Node),
 		cf:    cf,
 	}
+	ps.contactRep = newReplicator(replicatorParams[contactset.State]{
+		Context:     ctx,
+		GetNode:     ps.getNode,
+		NewProtocol: ps.newContactSetScheme(),
+	})
+	ps.directoryRep = newReplicator(replicatorParams[directory.State]{
+		Context:     ctx,
+		GetNode:     ps.getNode,
+		NewProtocol: ps.newDirectoryScheme(),
+	})
+	ps.dmRep = newReplicator(replicatorParams[directmsg.State]{
+		Context:     ctx,
+		GetNode:     ps.getNode,
+		NewProtocol: ps.newDirectMsgScheme(),
+	})
 	ps.eg.Go(func() error { return ps.run(ctx) })
 	return ps
 }
 
 func (ps *personaServer) run(ctx context.Context) error {
-	// TODO: spawn read loops
-	return nil
+	logctx.Infof(ctx, "persona server started id=%d", ps.id)
+	defer logctx.Infof(ctx, "persona server stopped id=%d", ps.id)
+
+	<-ctx.Done()
+	return ctx.Err()
 }
 
 func (ps *personaServer) Close() error {
@@ -73,9 +95,33 @@ func (ps *personaServer) readLoop(ctx context.Context, n *owlnet.Node) error {
 		})
 	})
 	eg.Go(func() error {
-		return n.FeedsServer(ctx, &owlnet.FeedsServer{})
+		return n.DAGServer(ctx, &owlnet.DAGServer{})
 	})
 	return eg.Wait()
+}
+
+func (ps *personaServer) syncContacts(ctx context.Context) error {
+	fid, err := ps.getContactSetVol(ctx)
+	if err != nil {
+		return err
+	}
+	return ps.contactRep.Sync(ctx, fid)
+}
+
+func (ps *personaServer) syncDirectory(ctx context.Context) error {
+	fid, err := ps.getDirectoryVol(ctx)
+	if err != nil {
+		return err
+	}
+	return ps.directoryRep.Sync(ctx, fid)
+}
+
+func (ps *personaServer) syncChannel(ctx context.Context, name string) error {
+	_, err := ps.resolveChannel(ctx, name)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (ps *personaServer) modifyContactSet(ctx context.Context, fn func(op *contactset.Operator, s cadata.Store, x contactset.State) (*contactset.State, error)) error {
@@ -166,7 +212,11 @@ func (ps *personaServer) viewDM(ctx context.Context, name string) (*directmsg.St
 	return viewFeedInner[directmsg.State](ctx, ps.db, volID)
 }
 
-func (s *personaServer) getNode(ctx context.Context, id PeerID) (*owlnet.Node, error) {
+func (s *personaServer) getNode(ctx context.Context) (*owlnet.Node, error) {
+	id, err := s.getLocalPeer(ctx)
+	if err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if node, exists := s.nodes[id]; exists {
@@ -262,10 +312,6 @@ func (ps *personaServer) newDirectMsgScheme() owldag.Scheme[directmsg.State] {
 	return directmsg.NewScheme(func(ctx context.Context) ([]PeerID, error) {
 		return nil, nil
 	})
-}
-
-func (ps *personaServer) getPeers(ctx context.Context, contact string) ([]PeerID, error) {
-	return nil, nil
 }
 
 func (ps *personaServer) whoIs(ctx context.Context, peerID PeerID) (string, error) {

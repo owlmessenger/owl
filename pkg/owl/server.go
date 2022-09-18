@@ -2,19 +2,19 @@ package owl
 
 import (
 	"context"
-	"io"
 	"sync"
 
+	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/inet256/inet256/pkg/inet256"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
-	"golang.org/x/crypto/sha3"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
 	contactSetScheme = "contactset@v0"
 	directoryScheme  = "directory@v0"
-	channelScheme    = "channel@v0"
+	channelScheme    = DirectMessageV0
 )
 
 var _ API = &Server{}
@@ -59,6 +59,54 @@ func (s *Server) Close() error {
 	return nil
 }
 
+func (s *Server) Sync(ctx context.Context, req *SyncReq) error {
+	eg := errgroup.Group{}
+	for i := range req.Targets {
+		target := req.Targets[i]
+		eg.Go(func() error {
+			switch {
+			case target.Contacts != nil:
+				ps, err := s.getPersonaServer(ctx, *target.Contacts)
+				if err != nil {
+					return err
+				}
+				return ps.syncContacts(ctx)
+			case target.Directory != nil:
+				ps, err := s.getPersonaServer(ctx, *target.Directory)
+				if err != nil {
+					return err
+				}
+				return ps.syncDirectory(ctx)
+			case target.Channel != nil:
+				ps, err := s.getPersonaServer(ctx, target.Channel.Persona)
+				if err != nil {
+					return err
+				}
+				return ps.syncChannel(ctx, target.Channel.Name)
+			default:
+				logctx.Warnf(ctx, "empty sync target")
+				return nil
+			}
+		})
+	}
+	return eg.Wait()
+}
+
+func (s *Server) reloadPersona(ctx context.Context, name string) error {
+	id, err := s.lookupPersona(s.db, name)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	if ps, exists := s.personas[id]; !exists {
+		ps.Close()
+		delete(s.personas, id)
+	}
+	s.mu.Unlock()
+	_, err = s.getPersonaServer(ctx, name)
+	return err
+}
+
 func (s *Server) getPersonaServer(ctx context.Context, name string) (*personaServer, error) {
 	id, err := s.lookupPersona(s.db, name)
 	if err != nil {
@@ -74,15 +122,4 @@ func (s *Server) getPersonaServer(ctx context.Context, name string) (*personaSer
 		s.personas[id] = newPersonaServer(s.db, s.inet256, id, members)
 	}
 	return s.personas[id], nil
-}
-
-func deriveSeed(seed *[32]byte, other string) *[32]byte {
-	var ret [32]byte
-	h := sha3.NewShake256()
-	h.Write(seed[:])
-	h.Write([]byte(other))
-	if _, err := io.ReadFull(h, ret[:]); err != nil {
-		panic(err)
-	}
-	return &ret
 }

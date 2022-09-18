@@ -48,12 +48,12 @@ func (n *Node) BlobPullClient() BlobPullClient {
 	return BlobPullClient{swarm: n.blobPullSwarm}
 }
 
-func (n *Node) FeedsServer(ctx context.Context, srv *FeedsServer) error {
+func (n *Node) DAGServer(ctx context.Context, srv *DAGServer) error {
 	return ServeAsks(ctx, n.feedsSwarm, srv)
 }
 
-func (n *Node) FeedsClient() FeedsClient {
-	return FeedsClient{n.feedsSwarm}
+func (n *Node) DAGClient() DAGClient {
+	return DAGClient{n.feedsSwarm}
 }
 
 func (n *Node) Close() error {
