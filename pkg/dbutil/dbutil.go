@@ -52,6 +52,7 @@ func DoTx2[A, B any](ctx context.Context, db *sqlx.DB, fn func(tx *sqlx.Tx) (A, 
 func NewTestDB(t testing.TB) *sqlx.DB {
 	db, err := sqlx.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
+	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
 	return db
 }

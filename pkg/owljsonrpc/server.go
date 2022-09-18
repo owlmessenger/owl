@@ -13,16 +13,11 @@ import (
 	"github.com/sourcegraph/jsonrpc2"
 )
 
-type Request struct {
-	ID      uint64 `json:"id"`
-	Version string `json:"jsonrpc"`
-}
-
 // ServeRWC serves requests over an io.ReadWriteCloser rwc, using that Owl API o.
 func ServeRWC(ctx context.Context, rwc io.ReadWriteCloser, o owl.API) error {
 	objStream := jsonrpc2.NewBufferedStream(rwc, jsonrpc2.PlainObjectCodec{})
 	h := handler{owl: o}
-	c := jsonrpc2.NewConn(ctx, objStream, h) // TODO: async handler
+	c := jsonrpc2.NewConn(ctx, objStream, jsonrpc2.AsyncHandler(h)) // TODO: async handler
 	defer c.Close()
 	<-c.DisconnectNotify()
 	return nil
