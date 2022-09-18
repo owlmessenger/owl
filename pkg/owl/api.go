@@ -44,7 +44,7 @@ type ExpandPersonaReq struct {
 }
 
 type ShrinkPersonaReq struct {
-	Name string `json:"name'`
+	Name string `json:"name"`
 	Peer PeerID `json:"peer"`
 }
 
@@ -199,7 +199,7 @@ type CreateChannelReq struct {
 	Name    string `json:"name"`
 
 	Type    string   `json:"type"`
-	Members []string `json:"members'`
+	Members []string `json:"members"`
 }
 
 type JoinChannelReq struct {
@@ -250,7 +250,7 @@ type ChannelAPI interface {
 	// Read reads events from a channel
 	Read(ctx context.Context, req *ReadReq) ([]Entry, error)
 	// Wait blocks until the latest message in a channel changes is different from since
-	Wait(ctx context.Context, cid ChannelID, since EntryPath) (EntryPath, error)
+	Wait(ctx context.Context, req *WaitReq) (EntryPath, error)
 }
 
 type API interface {

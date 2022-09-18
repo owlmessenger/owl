@@ -105,7 +105,6 @@ func (c *Client) GetContact(ctx context.Context, req *owl.GetContactReq) (*owl.C
 func (c *Client) CreateChannel(ctx context.Context, req *owl.CreateChannelReq) error {
 	var res struct{}
 	return c.c.Call(ctx, currentMethodName(), req, &res)
-	panic("not implemented") // TODO: Implement
 }
 
 // JoinChannel joins an existing channel
@@ -154,8 +153,12 @@ func (c *Client) Read(ctx context.Context, req *owl.ReadReq) ([]owl.Entry, error
 }
 
 // Wait blocks until the latest message in a channel changes is different from since
-func (c *Client) Wait(ctx context.Context, cid owl.ChannelID, since owl.EntryPath) (owl.EntryPath, error) {
-	panic("not implemented") // TODO: Implement
+func (c *Client) Wait(ctx context.Context, req *owl.WaitReq) (owl.EntryPath, error) {
+	var res owl.EntryPath
+	if err := c.c.Call(ctx, currentMethodName(), req, &res); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 func currentMethodName() string {

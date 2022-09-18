@@ -23,88 +23,30 @@ type (
 type SetupFunc = func(t testing.TB, xs []owl.API)
 
 func TestAPI(t *testing.T, sf SetupFunc) {
-	t.Run("PersonaCRUD", func(t *testing.T) {
+	t.Run("Persona", func(t *testing.T) {
 		t.Parallel()
-		TestPersonasCRUD(t, sf)
+		TestPersonaAPI(t, sf)
 	})
-	t.Run("AddContact", func(t *testing.T) {
+	t.Run("Contact", func(t *testing.T) {
 		t.Parallel()
-		TestAddContact(t, sf)
+		TestContactAPI(t, sf)
 	})
-	t.Run("ChannelsCRUD", func(t *testing.T) {
+	t.Run("Channel", func(t *testing.T) {
 		t.Parallel()
-		TestChannelsCRUD(t, sf)
-	})
-	t.Run("ChannelsRW", func(t *testing.T) {
-		t.Parallel()
-		TestChannelsCRUD(t, sf)
+		TestChannelAPI(t, sf)
 	})
 }
 
-func TestPersonasCRUD(t *testing.T, sf SetupFunc) {
-	xs := doSetup(t, 1, sf)
-	s := xs[0]
+var ctx = context.Background()
 
-	names := listPersonas(t, s)
-	require.Len(t, names, 0)
-	createPersona(t, s, "test")
-	names = listPersonas(t, s)
-	require.Len(t, names, 1)
-	p := getPersona(t, s, "test")
-	require.NotNil(t, p)
-}
-
-func TestAddContact(t *testing.T, sf SetupFunc) {
-	xs := doSetup(t, 1, sf)
-	s := xs[0]
-
-	createPersona(t, s, "A")
-	createPersona(t, s, "B")
-	createContact(t, s, "A", "b", getPeer(t, s, "B"))
-	createContact(t, s, "B", "a", getPeer(t, s, "A"))
-	acs := listContacts(t, s, "A")
-	bcs := listContacts(t, s, "B")
-	require.Len(t, acs, 1)
-	require.Len(t, bcs, 1)
-}
-
-func TestChannelsCRUD(t *testing.T, sf SetupFunc) {
-	xs := doSetup(t, 1, sf)
-	s := xs[0]
-
-	createPersona(t, s, "test")
-	cs := listChannels(t, s, "test")
-	require.Len(t, cs, 0)
-	createChannel(t, s, "test", "chan1", owl.DirectMessageV0, nil)
-	cs = listChannels(t, s, "test")
-	require.Len(t, cs, 1)
-}
-
-func TestChannelRW(t *testing.T, sf SetupFunc) {
-	xs := doSetup(t, 1, sf)
-	s := xs[0]
-
-	createPersona(t, s, "A")
-	createPersona(t, s, "B")
-	createContact(t, s, "A", "b", getPeer(t, s, "B"))
-	createContact(t, s, "B", "a", getPeer(t, s, "A"))
-
-	// A invites B to a new channel
-	createChannel(t, s, "A", "chan1", owl.DirectMessageV0, []string{"b"})
-
-	msgBody := "hello world"
-	sendMessage(t, s, "A", "chan1", msgBody)
-	ents := readChannel(t, s, "A", "chan1")
-	t.Log(ents)
-	require.Len(t, ents, 1)
-	require.NotNil(t, ents[0].Message)
-	require.Equal(t, msgBody, ents[0].Message.AsString())
-}
-
-func doSetup(t testing.TB, n int, sf SetupFunc) (ret []owl.API) {
+func setup(t testing.TB, n int, sf SetupFunc) (ret []owl.API) {
 	ret = make([]owl.API, n)
 	sf(t, ret)
 	return ret
+}
+
+func setupOne(t testing.TB, sf SetupFunc) owl.API {
+	return setup(t, 1, sf)[0]
 }
 
 func createChannel(t testing.TB, x API, persona, name string, ty string, members []string) {
@@ -155,11 +97,15 @@ func createPersona(t testing.TB, x API, name string) {
 }
 
 func joinPersona(t testing.TB, x API, name string, peers []PeerID) {
-	ctx := context.Background()
 	err := x.JoinPersona(ctx, &owl.JoinPersonaReq{
 		Name:  name,
 		Peers: peers,
 	})
+	require.NoError(t, err)
+}
+
+func expandPersona(t testing.TB, x API, name string, peers []PeerID) {
+	err := x.ExpandPersona(ctx, &owl.ExpandPersonaReq{Name: name, Peers: peers})
 	require.NoError(t, err)
 }
 
@@ -177,12 +123,12 @@ func getPersona(t testing.TB, x API, name string) *Persona {
 	return p
 }
 
-func createContact(t testing.TB, x API, persona, name string, peerID PeerID) {
+func createContact(t testing.TB, x API, persona, name string, peerIDs ...PeerID) {
 	ctx := context.Background()
 	err := x.CreateContact(ctx, &owl.CreateContactReq{
 		Persona: persona,
 		Name:    name,
-		Peers:   []PeerID{peerID},
+		Peers:   peerIDs,
 	})
 	require.NoError(t, err)
 }

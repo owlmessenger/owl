@@ -125,6 +125,15 @@ func (s *Server) DeleteChannel(ctx context.Context, cid *ChannelID) error {
 	if err != nil {
 		return err
 	}
+	fid, err := ps.getChannelFeed(ctx, cid.Name)
+	if err != nil {
+		return err
+	}
+	if err := dbutil.DoTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		return dropFeed(tx, fid)
+	}); err != nil {
+		return err
+	}
 	return ps.modifyDirectory(ctx, func(s cadata.Store, x directory.State) (*directory.State, error) {
 		op := directory.New()
 		return op.Delete(ctx, s, x, cid.Name)
@@ -234,10 +243,11 @@ func (s *Server) Read(ctx context.Context, req *ReadReq) ([]Entry, error) {
 	}
 }
 
-func (s *Server) Wait(ctx context.Context, cid ChannelID, since EntryPath) (EntryPath, error) {
+func (s *Server) Wait(ctx context.Context, req *WaitReq) (EntryPath, error) {
 	if err := s.Init(ctx); err != nil {
 		return nil, err
 	}
+	panic("not implemented")
 	return nil, nil
 }
 
