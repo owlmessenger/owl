@@ -3,8 +3,10 @@ package dbutil
 import (
 	"context"
 	"database/sql"
+	"testing"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/stretchr/testify/require"
 )
 
 type Reader interface {
@@ -45,4 +47,12 @@ func DoTx2[A, B any](ctx context.Context, db *sqlx.DB, fn func(tx *sqlx.Tx) (A, 
 		return err
 	})
 	return a, b, err
+}
+
+func NewTestDB(t testing.TB) *sqlx.DB {
+	db, err := sqlx.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { db.Close() })
+	return db
 }

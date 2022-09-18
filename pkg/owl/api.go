@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brendoncarroll/go-state"
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/inet256/inet256/pkg/inet256"
 
@@ -22,40 +21,83 @@ type PeerID = owlnet.PeerID
 // A Persona is a collection of inet256.IDs
 // LocalIDs are IDs which the instance has a private key for, and can therefore send as those Peers.
 type Persona struct {
-	LocalIDs  []PeerID
-	RemoteIDs []PeerID
+	LocalIDs  []PeerID `json:"local_ids"`
+	RemoteIDs []PeerID `json:"remote_ids"`
+}
+
+type CreatePersonaReq struct {
+	Name string `json:"name"`
+}
+
+type JoinPersonaReq struct {
+	Name  string   `json:"name"`
+	Peers []PeerID `json:"peers"`
+}
+
+type GetPersonaReq struct {
+	Name string `json:"name"`
+}
+
+type ExpandPersonaReq struct {
+	Name  string   `json:"name"`
+	Peers []PeerID `json:"peers"`
+}
+
+type ShrinkPersonaReq struct {
+	Name string `json:"name'`
+	Peer PeerID `json:"peer"`
 }
 
 type PersonaAPI interface {
 	// CreatePersona creates a new persona called name.
 	// If any ids are provided then the persona will not have a feed, and will attempt to join
 	// a feed provided by one of the IDs.
-	CreatePersona(ctx context.Context, name string) error
+	CreatePersona(ctx context.Context, req *CreatePersonaReq) error
 	// JoinPersona joins a persona, which has already been created on another peer.
-	JoinPersona(ctx context.Context, name string, peers []PeerID) error
+	JoinPersona(ctx context.Context, req *JoinPersonaReq) error
 	// GetPersona retrieves the Persona at name
-	GetPersona(ctx context.Context, name string) (*Persona, error)
+	GetPersona(ctx context.Context, req *GetPersonaReq) (*Persona, error)
 	// ListPersonas lists personas on the instance.
 	ListPersonas(ctx context.Context) ([]string, error)
 	// ExpandPersona adds a peer to the Persona at name.
-	ExpandPersona(ctx context.Context, name string, peer PeerID) error
+	ExpandPersona(ctx context.Context, req *ExpandPersonaReq) error
 	// ShrinkPersona removes a peer from the Persona at name
-	ShrinkPersona(ctx context.Context, name string, peer PeerID) error
+	ShrinkPersona(ctx context.Context, req *ShrinkPersonaReq) error
 }
 
 type Contact struct {
-	Addrs []inet256.Addr
+	Addrs []inet256.Addr `json:"addrs"`
+}
+
+type CreateContactReq struct {
+	Persona string   `json:"persona"`
+	Name    string   `json:"name"`
+	Peers   []PeerID `json:"peers"`
+}
+
+type DeleteContactReq struct {
+	Persona string `json:"persona"`
+	Name    string `json:"name"`
+}
+
+type GetContactReq struct {
+	Persona string `json:"persona"`
+	Name    string `json:"name"`
+}
+
+type ListContactReq struct {
+	Persona string `json:"persona"`
 }
 
 type ContactAPI interface {
 	// CreateContact adds a contact to the contact list for persona
-	CreateContact(ctx context.Context, persona, name string, c Contact) error
+	CreateContact(ctx context.Context, req *CreateContactReq) error
 	// RemoveContact removes a contact.
-	DeleteContact(ctx context.Context, persona, name string) error
+	DeleteContact(ctx context.Context, req *DeleteContactReq) error
 	// ListContacts lists contacts starting with begin.
-	ListContact(ctx context.Context, persona string) ([]string, error)
+	ListContact(ctx context.Context, res *ListContactReq) ([]string, error)
 	// GetContact returns information about a contact.
-	GetContact(ctx context.Context, persona, name string) (*Contact, error)
+	GetContact(ctx context.Context, req *GetContactReq) (*Contact, error)
 }
 
 var validContactName = regexp.MustCompile(`^[A-Za-z0-9 \-_.]$`)
@@ -69,8 +111,8 @@ func CheckContactName(x string) error {
 
 // ChannelID uniquely identifies a channel
 type ChannelID struct {
-	Persona string
-	Name    string
+	Persona string `json:"persona"`
+	Name    string `json:"name"`
 }
 
 func (a ChannelID) Compare(b ChannelID) int {
@@ -152,27 +194,61 @@ const (
 	DirectMessageV0 = "directmsg@v0"
 )
 
-type ChannelParams struct {
-	Type    string
-	Members []string
+type CreateChannelReq struct {
+	Persona string `json:"persona"`
+	Name    string `json:"name"`
+
+	Type    string   `json:"type"`
+	Members []string `json:"members'`
+}
+
+type JoinChannelReq struct {
+	Persona string   `json:"persona"`
+	Name    string   `json:"name"`
+	Root    feeds.ID `json:"root"`
+}
+
+type ListChannelReq struct {
+	Persona string `json:"persona"`
+	Begin   string `json:"begin"`
+	Limit   int    `json:"limit"`
+}
+
+type SendReq struct {
+	Persona string        `json:"persona"`
+	Name    string        `json:"name"`
+	Params  MessageParams `json:"params"`
+}
+
+type ReadReq struct {
+	Persona string    `json:"persona"`
+	Name    string    `json:"name"`
+	Begin   EntryPath `json:"begin"`
+	Limit   int       `json:"limit"`
+}
+
+type WaitReq struct {
+	Persona string    `json:"persona"`
+	Name    string    `json:"name"`
+	Since   EntryPath `json:"since"`
 }
 
 type ChannelAPI interface {
 	// CreateChannel creates a new channel with name
-	CreateChannel(ctx context.Context, cid ChannelID, p ChannelParams) error
+	CreateChannel(ctx context.Context, req *CreateChannelReq) error
 	// JoinChannel joins an existing channel
-	JoinChannel(ctx context.Context, cid ChannelID, root feeds.ID) error
+	JoinChannel(ctx context.Context, req *JoinChannelReq) error
 	// DeleteChannel deletes the channel with name if it exists
-	DeleteChannel(ctx context.Context, cid ChannelID) error
+	DeleteChannel(ctx context.Context, cid *ChannelID) error
 	// ListChannels lists channels starting with begin
-	ListChannels(ctx context.Context, persona string, span state.Span[string], limit int) ([]string, error)
+	ListChannels(ctx context.Context, req *ListChannelReq) ([]string, error)
 	// GetLatest returns the latest EntryIndex
-	GetChannel(ctx context.Context, cid ChannelID) (*ChannelInfo, error)
+	GetChannel(ctx context.Context, cid *ChannelID) (*ChannelInfo, error)
 
 	// Send, sends a message to a channel.
-	Send(ctx context.Context, cid ChannelID, mp MessageParams) error
+	Send(ctx context.Context, req *SendReq) error
 	// Read reads events from a channel
-	Read(ctx context.Context, cid ChannelID, begin EntryPath, limit int) ([]Entry, error)
+	Read(ctx context.Context, req *ReadReq) ([]Entry, error)
 	// Wait blocks until the latest message in a channel changes is different from since
 	Wait(ctx context.Context, cid ChannelID, since EntryPath) (EntryPath, error)
 }

@@ -45,7 +45,7 @@ func newPersonaCreateCmd(sf func() owl.PersonaAPI) *cobra.Command {
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			return sf().CreatePersona(ctx, name)
+			return sf().CreatePersona(ctx, &owl.CreatePersonaReq{Name: name})
 		},
 	}
 }
@@ -65,7 +65,7 @@ func newPersonaJoinCmd(sf func() owl.PersonaAPI) *cobra.Command {
 				}
 				ids = append(ids, id)
 			}
-			return sf().JoinPersona(ctx, name, ids)
+			return sf().JoinPersona(ctx, &owl.JoinPersonaReq{Name: name, Peers: ids})
 		},
 	}
 }

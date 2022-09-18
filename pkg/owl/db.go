@@ -9,7 +9,12 @@ import (
 )
 
 func OpenDB(dbPath string) (*sqlx.DB, error) {
-	return sqlx.Open("sqlite3", dbPath)
+	db, err := sqlx.Open("sqlite3", dbPath)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	return db, nil
 }
 
 var desiredState = migrations.InitialState().

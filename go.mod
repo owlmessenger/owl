@@ -11,7 +11,8 @@ require (
 	github.com/inet256/inet256 v0.0.5
 	github.com/jmoiron/sqlx v1.3.5
 	github.com/mattn/go-sqlite3 v1.14.12
-	github.com/sirupsen/logrus v1.7.0
+	github.com/sirupsen/logrus v1.8.1
+	github.com/sourcegraph/jsonrpc2 v0.1.0
 	github.com/spf13/cobra v0.0.5
 	github.com/stretchr/testify v1.7.1
 	golang.org/x/crypto v0.0.0-20220321153916-2c7772ba3064
@@ -31,6 +32,7 @@ require (
 	github.com/go-chi/chi v4.0.3+incompatible // indirect
 	github.com/go-task/slim-sprig v0.0.0-20210107165309-348f09dbbbc0 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
+	github.com/google/go-cmp v0.5.7 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/jonboulle/clockwork v0.1.1-0.20190114141812-62fb9bc030d1 // indirect
