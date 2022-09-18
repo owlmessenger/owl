@@ -36,8 +36,6 @@ This section describes the commands provided by Owl.
 
 ### `owl contact rm-peer <name> <peers...>`
 
-### `owl contact <peers...>`
-
 ## Channels
 
 ### `owl channel ls <persona>`
