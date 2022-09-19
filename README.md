@@ -26,6 +26,7 @@ There are no fancy cryptographic protocols anywhere in Owl.
 - Shared channel directories analagous to Slack or Discord servers.
 - Easy to export your data, you can always dump contacts and message history to JSON files.
 - Avoid cryptography. Let INET256 take care of that.  So far it looks like Owl will only need to use signatures and hashes.
+- Identity is defined as a set of keys managed with humans in the loop.
 
 ## Non-Goals
 - Format or protocol specifications or interoperability with other implementations.
@@ -40,7 +41,15 @@ Messages from those addresses will appear as coming from Bob, and her Owl instan
 ## Not-Yet Goals
 - Voice/Video calling.
 INET256 provides secure, unordered, and unreliable delivery, which is ideal for real time applications.
-- Finally a reasonable solution to [xkcd.com/949](https://xkcd.com/949)
+- A reasonable solution to [xkcd.com/949](https://xkcd.com/949)
+
+## Getting Started
+Owl is written in Go.  The entrypoint is in `cmd/owl`.
+You can run it with `go run ./cmd/owl`, install with `go install ./cmd/owl/`.
+
+Read the [CLI Docs](./doc/20_CLI.md) to learn more about how to use the `owl` command.
+
+Read the [API Docs](./doc/30_API.md) to learn how to interact with a running owl instance.
 
 ## More
 Support and discussion happen in the INET256 discord
