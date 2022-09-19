@@ -126,8 +126,7 @@ func (a ChannelID) Compare(b ChannelID) int {
 }
 
 type ChannelInfo struct {
-	Type   string
-	Feed   feeds.ID
+	Scheme string
 	Latest EntryPath
 }
 
@@ -198,7 +197,7 @@ type CreateChannelReq struct {
 	Persona string `json:"persona"`
 	Name    string `json:"name"`
 
-	Type    string   `json:"type"`
+	Scheme  string   `json:"scheme"`
 	Members []string `json:"members"`
 }
 

@@ -68,18 +68,7 @@ func (ps *personaServer) readLoop(ctx context.Context, n *owlnet.Node) error {
 	eg.Go(func() error {
 		return n.BlobPullServer(ctx, &owlnet.BlobPullServer{
 			Open: func(peerID PeerID, rootID feeds.ID) cadata.Getter {
-				feedID, err := lookupFeed(ps.db, ps.id, rootID)
-				if err != nil {
-					logctx.Errorf(ctx, "%v", err)
-					return nil
-				}
-				// TODO: do CanRead check
-				storeID, err := lookupFeedStore(ps.db, feedID)
-				if err != nil {
-					logctx.Errorf(ctx, "%v", err)
-					return nil
-				}
-				return newStore(ps.db, storeID)
+				return nil
 			},
 		})
 	})
@@ -90,39 +79,32 @@ func (ps *personaServer) readLoop(ctx context.Context, n *owlnet.Node) error {
 }
 
 func (ps *personaServer) modifyContactSet(ctx context.Context, fn func(s cadata.Store, x contactset.State) (*contactset.State, error)) error {
+	volID, err := ps.getContactSetVol(ctx)
+	if err != nil {
+		return err
+	}
+	author, err := ps.getLocalPeer(ctx)
+	if err != nil {
+		return err
+	}
 	type T = contactset.State
-	feedID, err := ps.getContactSetFeed(ctx)
-	if err != nil {
-		return err
-	}
-	peerID, err := ps.getLocalPeer(ctx)
-	if err != nil {
-		return err
-	}
 	return dbutil.DoTx(ctx, ps.db, func(tx *sqlx.Tx) error {
-		return modifyFeed(tx, feedID, peerID, func(x feeds.State[T], sf cadata.Store, s0 cadata.Store) (*feeds.State[T], error) {
-			feed := feeds.New(ps.newContactSetProtocol(s0), x, sf)
-			if err := feed.Modify(ctx, peerID, func(prev []feeds.Ref, x directory.State) (*directory.State, error) {
-				return fn(s0, x)
-			}); err != nil {
-				return nil, err
-			}
-			y := feed.GetState()
-			return &y, nil
+		return modifyFeedInner(tx, volID, author, ps.newContactSetProtocol, func(s cadata.Store, x T) (*T, error) {
+			return fn(s, x)
 		})
 	})
 }
 
 func (ps *personaServer) viewContactSet(ctx context.Context) (*contactset.State, cadata.Store, error) {
-	feedID, err := ps.getContactSetFeed(ctx)
+	volID, err := ps.getContactSetVol(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	return viewFeed[contactset.State](ps.db, feedID)
+	return viewFeedInner[contactset.State](ctx, ps.db, volID)
 }
 
-func (ps *personaServer) modifyDirectory(ctx context.Context, fn func(s cadata.Store, x directory.State) (*directory.State, error)) error {
-	feedID, err := ps.getDirectoryFeed(ctx)
+func (ps *personaServer) modifyDirectory(ctx context.Context, fn func(cadata.Store, directory.State) (*directory.State, error)) error {
+	volID, err := ps.getDirectoryVol(ctx)
 	if err != nil {
 		return err
 	}
@@ -132,29 +114,22 @@ func (ps *personaServer) modifyDirectory(ctx context.Context, fn func(s cadata.S
 	}
 	type T = directory.State
 	return dbutil.DoTx(ctx, ps.db, func(tx *sqlx.Tx) error {
-		return modifyFeed(tx, feedID, author, func(x feeds.State[T], sf, s0 cadata.Store) (*feeds.State[T], error) {
-			f := feeds.New(ps.newContactSetProtocol(s0), x, sf)
-			if err := f.Modify(ctx, author, func(prev []feeds.Ref, x T) (*T, error) {
-				return fn(s0, x)
-			}); err != nil {
-				return nil, err
-			}
-			y := f.GetState()
-			return &y, nil
+		return modifyFeedInner(tx, volID, author, ps.newDirectoryProtocol, func(s cadata.Store, x T) (*T, error) {
+			return fn(s, x)
 		})
 	})
 }
 
 func (ps *personaServer) viewDirectory(ctx context.Context) (*directory.State, cadata.Store, error) {
-	feedID, err := ps.getDirectoryFeed(ctx)
+	volID, err := ps.getDirectoryVol(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	return viewFeed[directory.State](ps.db, feedID)
+	return viewFeedInner[directory.State](ctx, ps.db, volID)
 }
 
 func (ps *personaServer) modifyDM(ctx context.Context, name string, fn func(cadata.Store, directmsg.State, PeerID) (*directmsg.State, error)) error {
-	feedID, err := ps.getChannelFeed(ctx, name)
+	volID, err := ps.getChannelVol(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -162,26 +137,20 @@ func (ps *personaServer) modifyDM(ctx context.Context, name string, fn func(cada
 	if err != nil {
 		return err
 	}
+	type T = directmsg.State
 	return dbutil.DoTx(ctx, ps.db, func(tx *sqlx.Tx) error {
-		return modifyFeed(tx, feedID, author, func(x feeds.State[directmsg.State], sf, s0 cadata.Store) (*feeds.State[directmsg.State], error) {
-			f := feeds.New(ps.newContactSetProtocol(s0), x, sf)
-			if err := f.Modify(ctx, author, func(prev []feeds.Ref, x directmsg.State) (*directmsg.State, error) {
-				return fn(s0, x, author)
-			}); err != nil {
-				return nil, err
-			}
-			y := f.GetState()
-			return &y, nil
+		return modifyFeedInner(tx, volID, author, ps.newDirectMsgProtocol, func(s cadata.Store, x T) (*T, error) {
+			return fn(s, x, author)
 		})
 	})
 }
 
 func (ps *personaServer) viewDM(ctx context.Context, name string) (*directmsg.State, cadata.Store, error) {
-	feedID, err := ps.getChannelFeed(ctx, name)
+	volID, err := ps.getChannelVol(ctx, name)
 	if err != nil {
 		return nil, nil, err
 	}
-	return viewFeed[directmsg.State](ps.db, feedID)
+	return viewFeedInner[directmsg.State](ctx, ps.db, volID)
 }
 
 func (s *personaServer) getNode(ctx context.Context, id PeerID) (*owlnet.Node, error) {
@@ -229,19 +198,19 @@ func (s *personaServer) getPrivateKey(ctx context.Context, localID PeerID) (inet
 	return privateKey.(crypto.Signer), nil
 }
 
-func (s *personaServer) getDirectoryFeed(ctx context.Context) (int, error) {
-	var feedID int
-	err := s.db.GetContext(ctx, &feedID, `SELECT directory_feed FROM personas WHERE id = ?`, s.id)
-	return feedID, err
+func (s *personaServer) getDirectoryVol(ctx context.Context) (int, error) {
+	var volID int
+	err := s.db.GetContext(ctx, &volID, `SELECT volume_id FROM persona_volumes WHERE persona_id = ? AND scheme = ?`, s.id, directoryScheme)
+	return volID, err
 }
 
-func (s *personaServer) getContactSetFeed(ctx context.Context) (int, error) {
-	var feedID int
-	err := s.db.GetContext(ctx, &feedID, `SELECT contactset_feed FROM personas WHERE id = ?`, s.id)
-	return feedID, err
+func (s *personaServer) getContactSetVol(ctx context.Context) (int, error) {
+	var volID int
+	err := s.db.GetContext(ctx, &volID, `SELECT volume_id FROM persona_volumes WHERE persona_id = ? AND scheme = ?`, s.id, contactSetScheme)
+	return volID, err
 }
 
-func (s *personaServer) getChannelFeed(ctx context.Context, name string) (int, error) {
+func (s *personaServer) getChannelVol(ctx context.Context, name string) (int, error) {
 	x, store, err := s.viewDirectory(ctx)
 	if err != nil {
 		return 0, err
@@ -253,7 +222,7 @@ func (s *personaServer) getChannelFeed(ctx context.Context, name string) (int, e
 	}
 	switch {
 	case v.DirectMessage != nil:
-		return lookupFeed(s.db, s.id, v.DirectMessage.Feed)
+		return findVolume(s.db, s.id, v.DirectMessage.Epochs...)
 	default:
 		return 0, errors.New("non-dm directory entry not supported")
 	}
@@ -302,4 +271,57 @@ func (ps *personaServer) lookupContactUID(ctx context.Context, name string) (*co
 	}
 	op := contactset.New()
 	return op.Lookup(ctx, store, *x, name)
+}
+
+func viewFeedInner[T any](ctx context.Context, db *sqlx.DB, volID int) (*T, cadata.Store, error) {
+	data, s0, _, err := viewVolume(ctx, db, volID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(data) == 0 {
+		return nil, s0, nil
+	}
+	x, err := feeds.ParseState[T](data)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &x.State, s0, nil
+}
+
+// modifyFeedInner calls fn to modify the contents of the feed.
+func modifyFeedInner[T any](tx *sqlx.Tx, volID int, author feeds.PeerID, newProto func(s cadata.Store) feeds.Protocol[T], fn func(s cadata.Store, x T) (*T, error)) error {
+	return modifyVolumeTx(tx, volID, func(x []byte, s0, sTop cadata.Store) ([]byte, error) {
+		fstate, err := feeds.ParseState[T](x)
+		if err != nil {
+			return nil, err
+		}
+		p := newProto(s0)
+		f := feeds.New(p, *fstate, sTop)
+		if err := f.Modify(context.TODO(), author, func(prev []feeds.Ref, x T) (*T, error) {
+			return fn(s0, x)
+		}); err != nil {
+			return nil, err
+		}
+		fstateOut := f.GetState()
+		return fstateOut.Marshal(), nil
+	})
+}
+
+func initFeed[T any](tx *sqlx.Tx, volID int, initF func(s cadata.Store) (*T, error)) (*feeds.ID, error) {
+	var ret *feeds.ID
+	if err := modifyVolumeTx(tx, volID, func(x []byte, s0, sTop cadata.Store) ([]byte, error) {
+		init, err := initF(s0)
+		if err != nil {
+			return nil, err
+		}
+		fstate, err := feeds.InitialState(context.Background(), sTop, init, nil)
+		if err != nil {
+			return nil, err
+		}
+		ret = &fstate.ID
+		return fstate.Marshal(), nil
+	}); err != nil {
+		return nil, err
+	}
+	return ret, nil
 }

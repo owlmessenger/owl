@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	contactSetProto = "contactset@v0"
-	directoryProto  = "directory@v0"
-	channelProto    = "channel@v0"
+	contactSetScheme = "contactset@v0"
+	directoryScheme  = "directory@v0"
+	channelScheme    = "channel@v0"
 )
 
 var _ API = &Server{}

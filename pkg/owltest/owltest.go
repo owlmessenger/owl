@@ -49,12 +49,12 @@ func setupOne(t testing.TB, sf SetupFunc) owl.API {
 	return setup(t, 1, sf)[0]
 }
 
-func createChannel(t testing.TB, x API, persona, name string, ty string, members []string) {
+func createChannel(t testing.TB, x API, persona, name string, sch string, members []string) {
 	ctx := context.Background()
 	require.NoError(t, x.CreateChannel(ctx, &owl.CreateChannelReq{
 		Persona: persona,
 		Name:    name,
-		Type:    ty,
+		Scheme:  sch,
 		Members: members,
 	}))
 }

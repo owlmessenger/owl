@@ -2,7 +2,6 @@ package owl
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -46,44 +45,48 @@ func (s *Server) CreateChannel(ctx context.Context, req *CreateChannelReq) error
 		return err
 	}
 
-	var (
-		newFeed     func(tx *sqlx.Tx) (int, error)
-		newDirValue func(feeds.ID) directory.Value
-	)
-	switch req.Type {
-	case DirectMessageV0:
-		newFeed = func(tx *sqlx.Tx) (int, error) {
-			return createFeed(tx, req.Type, func(s cadata.Store) (*directmsg.State, error) {
+	// initFunc(tx *sqlx.Tx)
+	// switch req.Scheme {
+	// case DirectMessageV0:
+	// 	newDirValue = func(fid feeds.ID) directory.Value {
+	// 		return directory.Value{
+	// 			DirectMessage: &directory.DirectMessage{
+	// 				Members: contactUIDs,
+	// 				Feed:    fid,
+	// 			},
+	// 		}
+	// 	}
+	// default:
+	// 	return fmt.Errorf("%q is not a valid channel scheme", req.Scheme)
+	// }
+
+	// create the new feed and channel state
+	dirValue, err := dbutil.DoTx1(ctx, s.db, func(tx *sqlx.Tx) (*directory.Value, error) {
+		volID, err := createVolume(tx)
+		if err != nil {
+			return nil, err
+		}
+		if err := assocVol(tx, ps.id, volID, req.Scheme); err != nil {
+			return nil, err
+		}
+		switch req.Scheme {
+		case DirectMessageV0:
+			fid, err := initFeed(tx, volID, func(s cadata.Store) (*directmsg.State, error) {
 				op := directmsg.New()
 				return op.NewEmpty(ctx, s)
 			})
-		}
-		newDirValue = func(fid feeds.ID) directory.Value {
-			return directory.Value{
-				DirectMessage: &directory.DirectMessage{
-					Members: contactUIDs,
-					Feed:    fid,
-				},
+			if err != nil {
+				return nil, err
 			}
+			return &directory.Value{
+				DirectMessage: &directory.DirectMessage{
+					Epochs:  feeds.NewIDSet(*fid),
+					Members: contactUIDs,
+				},
+			}, nil
+		default:
+			return nil, fmt.Errorf("%q is not a valid channel scheme", req.Scheme)
 		}
-	default:
-		return fmt.Errorf("%q is not a valid channel type", req.Type)
-	}
-
-	// create the new feed and channel state
-	rootID, err := dbutil.DoTx1(ctx, s.db, func(tx *sqlx.Tx) (*feeds.ID, error) {
-		feedID, err := newFeed(tx)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := tx.Exec(`INSERT INTO persona_channels (persona_id, feed_id) VALUES (?, ?)`, ps.id, feedID); err != nil {
-			return nil, err
-		}
-		fstate, err := loadFeed[json.RawMessage](tx, feedID)
-		if err != nil {
-			return nil, err
-		}
-		return &fstate.ID, nil
 	})
 	if err != nil {
 		return err
@@ -91,7 +94,7 @@ func (s *Server) CreateChannel(ctx context.Context, req *CreateChannelReq) error
 	// add the channel to the persona's directory
 	return ps.modifyDirectory(ctx, func(s cadata.Store, x directory.State) (*directory.State, error) {
 		op := directory.New()
-		return op.Put(ctx, s, x, req.Name, newDirValue(*rootID))
+		return op.Put(ctx, s, x, req.Name, *dirValue)
 	})
 }
 
@@ -125,12 +128,12 @@ func (s *Server) DeleteChannel(ctx context.Context, cid *ChannelID) error {
 	if err != nil {
 		return err
 	}
-	fid, err := ps.getChannelFeed(ctx, cid.Name)
+	volID, err := ps.getChannelVol(ctx, cid.Name)
 	if err != nil {
 		return err
 	}
 	if err := dbutil.DoTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		return dropFeed(tx, fid)
+		return dropVolume(tx, volID)
 	}); err != nil {
 		return err
 	}
@@ -173,8 +176,7 @@ func (s *Server) GetChannel(ctx context.Context, cid *ChannelID) (*ChannelInfo, 
 	switch {
 	case v.DirectMessage != nil:
 		return &ChannelInfo{
-			Type: DirectMessageV0,
-			Feed: v.DirectMessage.Feed,
+			Scheme: DirectMessageV0,
 		}, nil
 	default:
 		return nil, errors.New("empty directory entry")
@@ -249,13 +251,6 @@ func (s *Server) Wait(ctx context.Context, req *WaitReq) (EntryPath, error) {
 	}
 	panic("not implemented")
 	return nil, nil
-}
-
-func (s *Server) Flush(ctx context.Context, cid ChannelID) error {
-	if err := s.Init(ctx); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (s *personaServer) convertDM(ctx context.Context, x directmsg.Message) (*Entry, error) {

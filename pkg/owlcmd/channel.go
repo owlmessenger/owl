@@ -38,7 +38,7 @@ func newChannelCreateCmd(sf func() owl.ChannelAPI) *cobra.Command {
 		return sf().CreateChannel(ctx, &owl.CreateChannelReq{
 			Persona: *persona,
 			Name:    name,
-			Type:    owl.DirectMessageV0,
+			Scheme:  owl.DirectMessageV0,
 			Members: members,
 		})
 	}

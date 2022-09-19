@@ -33,20 +33,18 @@ var desiredState = migrations.InitialState().
 		FOREIGN KEY(blob_id) REFERENCES blobs(id),
 		PRIMARY KEY(store_id, blob_id)
 	);`).
-	ApplyStmt(`CREATE TABLE feeds (
+	ApplyStmt(`CREATE TABLE volumes (
 		id INTEGER NOT NULL,
-		root BLOB NOT NULL,
-		protocol TEXT NOT NULL,
-		state BLOB NOT NULL,
-		store_id INTEGER NOT NULL,
-		FOREIGN KEY(store_id) REFERENCES stores(id),
+		cell BLOB NOT NULL,
+		store_top INTEGER NOT NULL,
+		store_0 INTEGER NOT NULL,
+		FOREIGN KEY(store_top) REFERENCES stores(id),
+		FOREIGN KEY(store_0) REFERENCES stores(id),
 		PRIMARY KEY(id)
 	);`).
 	ApplyStmt(`CREATE TABLE personas (
 		id INTEGER PRIMARY KEY,
 		name TEXT NOT NULL,
-		contactset_feed INTEGER NOT NULL,
-		directory_feed INTEGER NOT NULL,
 		UNIQUE(name)
 	);`).
 	ApplyStmt(`CREATE TABLE persona_keys (
@@ -64,14 +62,17 @@ var desiredState = migrations.InitialState().
 		public_key BLOB,
 		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY(persona_id) REFERENCES personas(id),
+		UNIQUE(id),
 		PRIMARY KEY(persona_id, id)
 	);`).
-	ApplyStmt(`CREATE TABLE persona_channels (
+	ApplyStmt(`CREATE TABLE persona_volumes (
 		persona_id INTEGER NOT NULL,
-		feed_id INTEGER NOT NULL,
+		volume_id INTEGER NOT NULL,
+		scheme TEXT NOT NULL,
 		FOREIGN KEY(persona_id) REFERENCES personas(id),
-		FOREIGN KEY(feed_id) REFERENCES feeds(id),
-		PRIMARY KEY(persona_id, feed_id)
+		FOREIGN KEY(volume_id) REFERENCES volume(id),
+		UNIQUE(volume_id),
+		PRIMARY KEY(persona_id, volume_id)
 	);`)
 
 func setupDB(ctx context.Context, db *sqlx.DB) error {

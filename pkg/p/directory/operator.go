@@ -17,8 +17,8 @@ import (
 )
 
 type DirectMessage struct {
-	Feed    feeds.ID         `json:"feed_id"`
-	Members []contactset.UID `json:"members"`
+	Epochs  feeds.IDSet[feeds.ID] `json:"epochs"`
+	Members []contactset.UID      `json:"members"`
 }
 
 type Room struct {

@@ -23,39 +23,65 @@ func (s *Server) CreatePersona(ctx context.Context, req *CreatePersonaReq) error
 	if err != nil {
 		return err
 	}
-	pubKey := privKey.Public()
 
 	return dbutil.DoTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		csFeed, err := createFeed(tx, contactSetProto, func(s cadata.Store) (*contactset.State, error) {
+		personaID, err := s.createPersona(tx, req.Name)
+		if err != nil {
+			return err
+		}
+
+		csVol, err := createVolume(tx)
+		if err != nil {
+			return err
+		}
+		if err := assocVol(tx, personaID, csVol, contactSetScheme); err != nil {
+			return err
+		}
+		if _, err := initFeed(tx, csVol, func(s cadata.Store) (*contactset.State, error) {
 			op := contactset.New()
 			return op.New(ctx, s)
-		})
+		}); err != nil {
+			return err
+		}
+
+		dirVol, err := createVolume(tx)
 		if err != nil {
 			return err
 		}
-		dirFeed, err := createFeed(tx, directoryProto, func(s cadata.Store) (*directory.State, error) {
+		if err := assocVol(tx, personaID, dirVol, directoryScheme); err != nil {
+			return err
+		}
+		if _, err := initFeed(tx, dirVol, func(s cadata.Store) (*directory.State, error) {
 			op := directory.New()
 			return op.New(ctx, s)
-		})
-		if err != nil {
+		}); err != nil {
 			return err
 		}
-		personaID, err := s.createPersona(tx, req.Name, csFeed, dirFeed)
-		if err != nil {
-			return err
-		}
-		return s.addPrivateKey(tx, personaID, pubKey, privKey)
+
+		return s.addPrivateKey(tx, personaID, privKey)
 	})
 }
 
 func (s *Server) JoinPersona(ctx context.Context, req *JoinPersonaReq) error {
-	panic("not implemented")
-	return nil
+	if err := s.Init(ctx); err != nil {
+		return err
+	}
+	_, privKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return err
+	}
+
+	return dbutil.DoTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		personaID, err := s.createPersona(tx, req.Name)
+		if err != nil {
+			return err
+		}
+		return s.addPrivateKey(tx, personaID, privKey)
+	})
 }
 
 func (s *Server) DropPersona(ctx context.Context, name string) error {
 	panic("not implemented")
-	return nil
 }
 
 func (s *Server) ListPersonas(ctx context.Context) (ret []string, _ error) {
@@ -129,13 +155,12 @@ func (s *Server) AddPrivateKey(ctx context.Context, name string, privateKey inet
 	if err := s.Init(ctx); err != nil {
 		return err
 	}
-	pubKey := privateKey.Public()
 	return dbutil.DoTx(ctx, s.db, func(tx *sqlx.Tx) error {
 		pid, err := s.lookupPersona(tx, name)
 		if err != nil {
 			return err
 		}
-		return s.addPrivateKey(tx, pid, pubKey, privateKey)
+		return s.addPrivateKey(tx, pid, privateKey)
 	})
 }
 
@@ -150,10 +175,10 @@ func (s *Server) GetLocalPeer(ctx context.Context, persona string) (*PeerID, err
 }
 
 // createPersona inserts into the personas table
-func (s *Server) createPersona(tx *sqlx.Tx, name string, contactSetFeed, dirFeed int) (int, error) {
+func (s *Server) createPersona(tx *sqlx.Tx, name string) (int, error) {
 	var personaID int
-	err := tx.Get(&personaID, `INSERT INTO personas (name, contactset_feed, directory_feed)
-		VALUES (?, ?, ?) RETURNING id`, name, contactSetFeed, dirFeed)
+	err := tx.Get(&personaID, `INSERT INTO personas (name)
+		VALUES (?) RETURNING id`, name)
 	return personaID, err
 }
 
@@ -163,7 +188,8 @@ func (s *Server) lookupPersona(tx dbutil.Reader, name string) (int, error) {
 	return personaID, err
 }
 
-func (s *Server) addPrivateKey(tx *sqlx.Tx, personaID int, pubKey inet256.PublicKey, privKey inet256.PrivateKey) error {
+func (s *Server) addPrivateKey(tx *sqlx.Tx, personaID int, privKey inet256.PrivateKey) error {
+	pubKey := privKey.Public()
 	id := inet256.NewAddr(pubKey)
 	var pubKeyData []byte
 	if pubKey != nil {
@@ -186,4 +212,10 @@ func getPersonaMembers(tx dbutil.Reader, id int) (ret []PeerID, _ error) {
 		ret = append(ret, inet256.AddrFromBytes(row))
 	}
 	return ret, nil
+}
+
+// assocVol associates a volume with a persona by id.
+func assocVol(tx *sqlx.Tx, personaID, volID int, scheme string) error {
+	_, err := tx.Exec(`INSERT INTO persona_volumes (persona_id, volume_id, scheme) VALUES (?, ?, ?)`, personaID, volID, scheme)
+	return err
 }
