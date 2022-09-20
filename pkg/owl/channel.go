@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"time"
 
@@ -63,6 +64,7 @@ func (s *Server) CreateChannel(ctx context.Context, req *CreateChannelReq) error
 			if err != nil {
 				return nil, err
 			}
+			log.Println("fid", fid)
 			return &directory.Value{
 				DirectMessage: &directory.DirectMessage{
 					Epochs:  owldag.NewIDSet(*fid),

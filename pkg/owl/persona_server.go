@@ -331,6 +331,7 @@ func initDAG[T any](tx *sqlx.Tx, volID int, initF func(s cadata.Store) (*T, erro
 		if err != nil {
 			return nil, err
 		}
+		ret = &state.Epochs[0]
 		return state.Marshal(), nil
 	}); err != nil {
 		return nil, err

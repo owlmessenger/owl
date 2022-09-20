@@ -6,8 +6,8 @@ import (
 
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv"
+	"github.com/owlmessenger/owl/pkg/owldag"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/sha3"
 )
 
 var ctx = context.Background()
@@ -42,7 +42,7 @@ func newLogOp(t testing.TB) Operator {
 }
 
 func newStore(t testing.TB) cadata.Store {
-	return cadata.NewMem(func(x []byte) cadata.ID { return sha3.Sum256(x) }, 1<<20)
+	return cadata.NewMem(owldag.Hash, 1<<20)
 }
 
 func newText(x string) EntryParams {
