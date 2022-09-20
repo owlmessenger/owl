@@ -85,6 +85,10 @@ func (d *DAG[T]) GetHeads() []Head {
 	return d.state.Prev
 }
 
+func (d *DAG[T]) GetHeadRefs() []Ref {
+	return d.state.PrevRefs()
+}
+
 // AddHead adds a head from another peer.
 func (d *DAG[T]) AddHead(ctx context.Context, h Head) error {
 	if err := h.Verify(); err != nil {

@@ -19,9 +19,9 @@ import (
 	"github.com/owlmessenger/owl/pkg/dbutil"
 	"github.com/owlmessenger/owl/pkg/owldag"
 	"github.com/owlmessenger/owl/pkg/owlnet"
-	"github.com/owlmessenger/owl/pkg/p/contactset"
-	"github.com/owlmessenger/owl/pkg/p/directmsg"
-	"github.com/owlmessenger/owl/pkg/p/directory"
+	"github.com/owlmessenger/owl/pkg/schemes/contactset"
+	"github.com/owlmessenger/owl/pkg/schemes/directmsg"
+	"github.com/owlmessenger/owl/pkg/schemes/directory"
 )
 
 // personaServer is a server managing a single persona

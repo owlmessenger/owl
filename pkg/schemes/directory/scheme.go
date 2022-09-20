@@ -25,7 +25,7 @@ func NewScheme(peers []owldag.PeerID) *Scheme {
 	}
 }
 
-func (p *Scheme) Validate(ctx context.Context, s cadata.Store, consult owldag.ConsultFunc, x State) error {
+func (p *Scheme) Validate(ctx context.Context, s cadata.Getter, consult owldag.ConsultFunc, x State) error {
 	for _, peer := range p.peers {
 		if consult(peer) {
 			return nil
@@ -34,7 +34,7 @@ func (p *Scheme) Validate(ctx context.Context, s cadata.Store, consult owldag.Co
 	return errors.New("directory: invalid state")
 }
 
-func (p *Scheme) ValidateStep(ctx context.Context, s cadata.Store, consult owldag.ConsultFunc, prev, next State) error {
+func (p *Scheme) ValidateStep(ctx context.Context, s cadata.Getter, consult owldag.ConsultFunc, prev, next State) error {
 	return p.Validate(ctx, s, consult, next)
 }
 
@@ -42,7 +42,7 @@ func (p *Scheme) Merge(ctx context.Context, s cadata.Store, xs []State) (*State,
 	return p.op.Merge(ctx, s, xs)
 }
 
-func (p *Scheme) Sync(ctx context.Context, src, dst cadata.Store, x State) error {
+func (p *Scheme) Sync(ctx context.Context, src cadata.Getter, dst cadata.Store, x State) error {
 	return p.op.gotkv.Sync(ctx, src, dst, x, func(gotkv.Entry) error { return nil })
 }
 

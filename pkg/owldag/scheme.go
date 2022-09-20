@@ -10,15 +10,14 @@ type ConsultFunc = func(PeerID) bool
 
 type Scheme[T any] interface {
 	// Validate checks that the state is valid
-	Validate(ctx context.Context, s cadata.Store, consult ConsultFunc, x T) error
+	Validate(ctx context.Context, s cadata.Getter, consult ConsultFunc, x T) error
 
 	// ValidateStep checks that next is valid, given that prev is known to be valid.
-	ValidateStep(ctx context.Context, s cadata.Store, consult ConsultFunc, prev, next T) error
+	ValidateStep(ctx context.Context, s cadata.Getter, consult ConsultFunc, prev, next T) error
 
 	Merge(ctx context.Context, s cadata.Store, xs []T) (*T, error)
 
 	// Sync ensures that all of the data reachable by x is in dst, using src
 	// to get missing data.
-	// TODO: use cadata.Getter
-	Sync(ctx context.Context, src cadata.Store, dst cadata.Store, x T) error
+	Sync(ctx context.Context, src cadata.Getter, dst cadata.Store, x T) error
 }

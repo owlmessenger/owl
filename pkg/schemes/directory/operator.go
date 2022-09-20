@@ -11,7 +11,7 @@ import (
 	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/gotvc/got/pkg/gotkv/kvstreams"
 	"github.com/owlmessenger/owl/pkg/owldag"
-	"github.com/owlmessenger/owl/pkg/p/contactset"
+	"github.com/owlmessenger/owl/pkg/schemes/contactset"
 	"github.com/owlmessenger/owl/pkg/slices2"
 	"golang.org/x/exp/slices"
 )

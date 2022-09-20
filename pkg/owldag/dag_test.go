@@ -49,18 +49,18 @@ func (testScheme) Merge(ctx context.Context, s cadata.Store, xs []uint64) (*uint
 	return &x, nil
 }
 
-func (testScheme) Validate(ctx context.Context, s cadata.Store, consult ConsultFunc, x uint64) error {
+func (testScheme) Validate(ctx context.Context, s cadata.Getter, consult ConsultFunc, x uint64) error {
 	return nil
 }
 
 // ValidateStep checks that next is valid, given that prev is known to be valid.
-func (ts testScheme) ValidateStep(ctx context.Context, s cadata.Store, consult ConsultFunc, prev, next uint64) error {
+func (ts testScheme) ValidateStep(ctx context.Context, s cadata.Getter, consult ConsultFunc, prev, next uint64) error {
 	return ts.Validate(ctx, s, consult, next)
 }
 
 // Sync ensures that all of the data reachable by x is in dst, using src
 // to get missing data.
-func (s testScheme) Sync(ctx context.Context, src cadata.Store, dst cadata.Store, x uint64) error {
+func (s testScheme) Sync(ctx context.Context, src cadata.Getter, dst cadata.Store, x uint64) error {
 	panic("not implemented") // TODO: Implement
 }
 

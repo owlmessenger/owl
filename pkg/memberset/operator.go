@@ -39,7 +39,7 @@ func (o *Operator) NewEmpty(ctx context.Context, s cadata.Store, peers []PeerID)
 	return b.Finish(ctx)
 }
 
-func (o *Operator) Get(ctx context.Context, s cadata.Store, x State, id PeerID) (*Peer, error) {
+func (o *Operator) Get(ctx context.Context, s cadata.Getter, x State, id PeerID) (*Peer, error) {
 	panic("")
 }
 
@@ -97,7 +97,7 @@ func (o *Operator) List(ctx context.Context, s cadata.Store, x State, peer PeerI
 }
 
 // Validate determines if the transision is valid
-func (o *Operator) Validate(ctx context.Context, s cadata.Store, authorID PeerID, prev, next State) error {
+func (o *Operator) Validate(ctx context.Context, s cadata.Getter, authorID PeerID, prev, next State) error {
 	peer, err := o.Get(ctx, s, prev, authorID)
 	if err != nil {
 		return err

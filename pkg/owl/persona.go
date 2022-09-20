@@ -11,8 +11,8 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	"github.com/owlmessenger/owl/pkg/dbutil"
-	"github.com/owlmessenger/owl/pkg/p/contactset"
-	"github.com/owlmessenger/owl/pkg/p/directory"
+	"github.com/owlmessenger/owl/pkg/schemes/contactset"
+	"github.com/owlmessenger/owl/pkg/schemes/directory"
 )
 
 func (s *Server) CreatePersona(ctx context.Context, req *CreatePersonaReq) error {

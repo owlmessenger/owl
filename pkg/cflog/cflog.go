@@ -178,15 +178,15 @@ func (o *Operator) interleave(ctx context.Context, b *gotkv.Builder, base Path, 
 	return nil
 }
 
-func (o *Operator) Validate(ctx context.Context, s cadata.Store, consult owldag.ConsultFunc, x Root) error {
+func (o *Operator) Validate(ctx context.Context, s cadata.Getter, consult owldag.ConsultFunc, x Root) error {
 	return nil
 }
 
-func (o *Operator) ValidateStep(ctx context.Context, s cadata.Store, consult owldag.ConsultFunc, prev, next Root) error {
+func (o *Operator) ValidateStep(ctx context.Context, s cadata.Getter, consult owldag.ConsultFunc, prev, next Root) error {
 	return nil
 }
 
-func (o *Operator) Sync(ctx context.Context, src, dst cadata.Store, x Root) error {
+func (o *Operator) Sync(ctx context.Context, src cadata.Getter, dst cadata.Store, x Root) error {
 	return o.gotkv.Sync(ctx, src, dst, x, func(gotkv.Entry) error { return nil })
 }
 

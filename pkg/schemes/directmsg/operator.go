@@ -80,15 +80,15 @@ func (o *Operator) Merge(ctx context.Context, s cadata.Store, xs []State) (*Stat
 	return o.cflog.Merge(ctx, s, xs)
 }
 
-func (o *Operator) Validate(ctx context.Context, s cadata.Store, consult owldag.ConsultFunc, x State) error {
+func (o *Operator) Validate(ctx context.Context, s cadata.Getter, consult owldag.ConsultFunc, x State) error {
 	return o.cflog.Validate(ctx, s, consult, x)
 }
 
-func (o *Operator) ValidateStep(ctx context.Context, s cadata.Store, consult owldag.ConsultFunc, prev, next State) error {
+func (o *Operator) ValidateStep(ctx context.Context, s cadata.Getter, consult owldag.ConsultFunc, prev, next State) error {
 	return o.cflog.ValidateStep(ctx, s, consult, prev, next)
 }
 
-func (o *Operator) Sync(ctx context.Context, src, dst cadata.Store, x State) error {
+func (o *Operator) Sync(ctx context.Context, src cadata.Getter, dst cadata.Store, x State) error {
 	return o.cflog.Sync(ctx, src, dst, x)
 }
 

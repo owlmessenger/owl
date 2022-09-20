@@ -22,11 +22,11 @@ func NewScheme(getPeers func(ctx context.Context) ([]owldag.PeerID, error)) *Sch
 	}
 }
 
-func (p *Scheme) Validate(ctx context.Context, s cadata.Store, consult owldag.ConsultFunc, x State) error {
+func (p *Scheme) Validate(ctx context.Context, s cadata.Getter, consult owldag.ConsultFunc, x State) error {
 	return p.op.Validate(ctx, s, consult, x)
 }
 
-func (p *Scheme) ValidateStep(ctx context.Context, s cadata.Store, consult owldag.ConsultFunc, prev, next State) error {
+func (p *Scheme) ValidateStep(ctx context.Context, s cadata.Getter, consult owldag.ConsultFunc, prev, next State) error {
 	return p.Validate(ctx, s, consult, next)
 }
 
@@ -34,7 +34,7 @@ func (p *Scheme) Merge(ctx context.Context, s cadata.Store, xs []State) (*State,
 	return p.op.Merge(ctx, s, xs)
 }
 
-func (p *Scheme) Sync(ctx context.Context, src, dst cadata.Store, x State) error {
+func (p *Scheme) Sync(ctx context.Context, src cadata.Getter, dst cadata.Store, x State) error {
 	return p.op.Sync(ctx, src, dst, x)
 }
 

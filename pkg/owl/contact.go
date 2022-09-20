@@ -5,7 +5,7 @@ import (
 
 	"github.com/brendoncarroll/go-state/cadata"
 
-	"github.com/owlmessenger/owl/pkg/p/contactset"
+	"github.com/owlmessenger/owl/pkg/schemes/contactset"
 )
 
 var _ ContactAPI = &Server{}
