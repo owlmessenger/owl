@@ -60,7 +60,7 @@ func (ts testScheme) ValidateStep(ctx context.Context, s cadata.Store, consult C
 
 // Sync ensures that all of the data reachable by x is in dst, using src
 // to get missing data.
-func (s testScheme) Sync(ctx context.Context, src cadata.Getter, dst cadata.Store, x uint64) error {
+func (s testScheme) Sync(ctx context.Context, src cadata.Store, dst cadata.Store, x uint64) error {
 	panic("not implemented") // TODO: Implement
 }
 

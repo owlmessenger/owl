@@ -16,8 +16,7 @@ func (s *Server) CreateContact(ctx context.Context, req *CreateContactReq) error
 	if err != nil {
 		return err
 	}
-	return ps.modifyContactSet(ctx, func(s cadata.Store, x contactset.State) (*contactset.State, error) {
-		op := contactset.New()
+	return ps.modifyContactSet(ctx, func(op *contactset.Operator, s cadata.Store, x contactset.State) (*contactset.State, error) {
 		return op.Create(ctx, s, x, req.Name, req.Peers)
 	})
 }
@@ -27,7 +26,7 @@ func (s *Server) DeleteContact(ctx context.Context, req *DeleteContactReq) error
 	if err != nil {
 		return err
 	}
-	return ps.modifyContactSet(ctx, func(s cadata.Store, x contactset.State) (*contactset.State, error) {
+	return ps.modifyContactSet(ctx, func(op *contactset.Operator, s cadata.Store, x contactset.State) (*contactset.State, error) {
 		// TODO
 		return &x, nil
 	})

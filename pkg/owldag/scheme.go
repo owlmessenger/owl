@@ -19,5 +19,6 @@ type Scheme[T any] interface {
 
 	// Sync ensures that all of the data reachable by x is in dst, using src
 	// to get missing data.
-	Sync(ctx context.Context, src cadata.Getter, dst cadata.Store, x T) error
+	// TODO: use cadata.Getter
+	Sync(ctx context.Context, src cadata.Store, dst cadata.Store, x T) error
 }

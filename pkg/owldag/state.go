@@ -15,7 +15,8 @@ type State[T any] struct {
 	Prev []Head `json:"prev"`
 
 	// Heads is the root of the head for each peer.
-	Heads gotkv.Root `json:"heads"`
+	Heads  gotkv.Root `json:"heads"`
+	Epochs []Ref      `json:"epochs"`
 
 	X T `json:"x"`
 }
@@ -30,6 +31,14 @@ func ParseState[T any](data []byte) (*State[T], error) {
 
 func (s State[T]) PrevRefs() IDSet[Ref] {
 	return NewIDSet(slices2.Map(s.Prev, func(x Head) Ref { return x.Ref })...)
+}
+
+func (s State[T]) Marshal() []byte {
+	data, err := json.Marshal(s)
+	if err != nil {
+		panic(err)
+	}
+	return data
 }
 
 func InitState[T any](ctx context.Context, s cadata.Store, x T, salt *[32]byte) (*State[T], error) {
@@ -53,8 +62,9 @@ func InitState[T any](ctx context.Context, s cadata.Store, x T, salt *[32]byte) 
 		return nil, err
 	}
 	return &State[T]{
-		Max:  0,
-		Prev: []Head{{Ref: *ref}},
+		Max:    0,
+		Prev:   []Head{{Ref: *ref}},
+		Epochs: []Ref{*ref},
 
 		X:     x,
 		Heads: *sigsRoot,

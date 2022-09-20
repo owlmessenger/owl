@@ -17,7 +17,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/owlmessenger/owl/pkg/dbutil"
-	"github.com/owlmessenger/owl/pkg/feeds"
+	"github.com/owlmessenger/owl/pkg/owldag"
 	"github.com/owlmessenger/owl/pkg/owlnet"
 	"github.com/owlmessenger/owl/pkg/p/contactset"
 	"github.com/owlmessenger/owl/pkg/p/directmsg"
@@ -67,7 +67,7 @@ func (ps *personaServer) readLoop(ctx context.Context, n *owlnet.Node) error {
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.Go(func() error {
 		return n.BlobPullServer(ctx, &owlnet.BlobPullServer{
-			Open: func(peerID PeerID, rootID feeds.ID) cadata.Getter {
+			Open: func(peerID PeerID, rootID owldag.Ref) cadata.Getter {
 				return nil
 			},
 		})
@@ -78,19 +78,24 @@ func (ps *personaServer) readLoop(ctx context.Context, n *owlnet.Node) error {
 	return eg.Wait()
 }
 
-func (ps *personaServer) modifyContactSet(ctx context.Context, fn func(s cadata.Store, x contactset.State) (*contactset.State, error)) error {
+func (ps *personaServer) modifyContactSet(ctx context.Context, fn func(op *contactset.Operator, s cadata.Store, x contactset.State) (*contactset.State, error)) error {
 	volID, err := ps.getContactSetVol(ctx)
 	if err != nil {
 		return err
 	}
-	author, err := ps.getLocalPeer(ctx)
+	peerID, err := ps.getLocalPeer(ctx)
 	if err != nil {
 		return err
 	}
+	privKey, err := ps.getPrivateKey(ctx, peerID)
+	if err != nil {
+		return err
+	}
+	op := contactset.New()
 	type T = contactset.State
 	return dbutil.DoTx(ctx, ps.db, func(tx *sqlx.Tx) error {
-		return modifyFeedInner(tx, volID, author, ps.newContactSetProtocol, func(s cadata.Store, x T) (*T, error) {
-			return fn(s, x)
+		return modifyDAGInner(tx, volID, privKey, ps.newContactSetScheme(), func(s cadata.Store, x T) (*T, error) {
+			return fn(&op, s, x)
 		})
 	})
 }
@@ -108,13 +113,17 @@ func (ps *personaServer) modifyDirectory(ctx context.Context, fn func(cadata.Sto
 	if err != nil {
 		return err
 	}
-	author, err := ps.getLocalPeer(ctx)
+	peerID, err := ps.getLocalPeer(ctx)
+	if err != nil {
+		return err
+	}
+	privKey, err := ps.getPrivateKey(ctx, peerID)
 	if err != nil {
 		return err
 	}
 	type T = directory.State
 	return dbutil.DoTx(ctx, ps.db, func(tx *sqlx.Tx) error {
-		return modifyFeedInner(tx, volID, author, ps.newDirectoryProtocol, func(s cadata.Store, x T) (*T, error) {
+		return modifyDAGInner(tx, volID, privKey, ps.newDirectoryScheme(), func(s cadata.Store, x T) (*T, error) {
 			return fn(s, x)
 		})
 	})
@@ -133,14 +142,18 @@ func (ps *personaServer) modifyDM(ctx context.Context, name string, fn func(cada
 	if err != nil {
 		return err
 	}
-	author, err := ps.getLocalPeer(ctx)
+	peerID, err := ps.getLocalPeer(ctx)
+	if err != nil {
+		return err
+	}
+	privKey, err := ps.getPrivateKey(ctx, peerID)
 	if err != nil {
 		return err
 	}
 	type T = directmsg.State
 	return dbutil.DoTx(ctx, ps.db, func(tx *sqlx.Tx) error {
-		return modifyFeedInner(tx, volID, author, ps.newDirectMsgProtocol, func(s cadata.Store, x T) (*T, error) {
-			return fn(s, x, author)
+		return modifyDAGInner(tx, volID, privKey, ps.newDirectMsgScheme(), func(s cadata.Store, x T) (*T, error) {
+			return fn(s, x, peerID)
 		})
 	})
 }
@@ -237,16 +250,16 @@ func (ps *personaServer) resolveChannel(ctx context.Context, name string) (*dire
 	return op.Get(ctx, store, *state, name)
 }
 
-func (ps *personaServer) newContactSetProtocol(s cadata.Store) feeds.Protocol[contactset.State] {
-	return contactset.NewProtocol(s, ps.members)
+func (ps *personaServer) newContactSetScheme() owldag.Scheme[contactset.State] {
+	return contactset.NewScheme(ps.members)
 }
 
-func (ps *personaServer) newDirectoryProtocol(s cadata.Store) feeds.Protocol[directory.State] {
-	return directory.NewProtocol(s, ps.members)
+func (ps *personaServer) newDirectoryScheme() owldag.Scheme[directory.State] {
+	return directory.NewScheme(ps.members)
 }
 
-func (ps *personaServer) newDirectMsgProtocol(s cadata.Store) feeds.Protocol[directmsg.State] {
-	return directmsg.NewProtocol(s, func(ctx context.Context) ([]PeerID, error) {
+func (ps *personaServer) newDirectMsgScheme() owldag.Scheme[directmsg.State] {
+	return directmsg.NewScheme(func(ctx context.Context) ([]PeerID, error) {
 		return nil, nil
 	})
 }
@@ -281,45 +294,44 @@ func viewFeedInner[T any](ctx context.Context, db *sqlx.DB, volID int) (*T, cada
 	if len(data) == 0 {
 		return nil, s0, nil
 	}
-	x, err := feeds.ParseState[T](data)
+	x, err := owldag.ParseState[T](data)
 	if err != nil {
 		return nil, nil, err
 	}
-	return &x.State, s0, nil
+	return &x.X, s0, nil
 }
 
 // modifyFeedInner calls fn to modify the contents of the feed.
-func modifyFeedInner[T any](tx *sqlx.Tx, volID int, author feeds.PeerID, newProto func(s cadata.Store) feeds.Protocol[T], fn func(s cadata.Store, x T) (*T, error)) error {
+func modifyDAGInner[T any](tx *sqlx.Tx, volID int, privKey owldag.PrivateKey, sch owldag.Scheme[T], fn func(s cadata.Store, x T) (*T, error)) error {
+	ctx := context.TODO()
 	return modifyVolumeTx(tx, volID, func(x []byte, s0, sTop cadata.Store) ([]byte, error) {
-		fstate, err := feeds.ParseState[T](x)
+		dagState, err := owldag.ParseState[T](x)
 		if err != nil {
 			return nil, err
 		}
-		p := newProto(s0)
-		f := feeds.New(p, *fstate, sTop)
-		if err := f.Modify(context.TODO(), author, func(prev []feeds.Ref, x T) (*T, error) {
+		dag := owldag.New(sch, sTop, s0, *dagState)
+		if err := dag.Modify(ctx, privKey, func(s cadata.Store, x T) (*T, error) {
 			return fn(s0, x)
 		}); err != nil {
 			return nil, err
 		}
-		fstateOut := f.GetState()
-		return fstateOut.Marshal(), nil
+		return dag.SaveBytes(), nil
 	})
 }
 
-func initFeed[T any](tx *sqlx.Tx, volID int, initF func(s cadata.Store) (*T, error)) (*feeds.ID, error) {
-	var ret *feeds.ID
+func initDAG[T any](tx *sqlx.Tx, volID int, initF func(s cadata.Store) (*T, error)) (*owldag.Ref, error) {
+	ctx := context.Background()
+	var ret *owldag.Ref
 	if err := modifyVolumeTx(tx, volID, func(x []byte, s0, sTop cadata.Store) ([]byte, error) {
 		init, err := initF(s0)
 		if err != nil {
 			return nil, err
 		}
-		fstate, err := feeds.InitialState(context.Background(), sTop, init, nil)
+		state, err := owldag.InitState(ctx, sTop, init, nil)
 		if err != nil {
 			return nil, err
 		}
-		ret = &fstate.ID
-		return fstate.Marshal(), nil
+		return state.Marshal(), nil
 	}); err != nil {
 		return nil, err
 	}

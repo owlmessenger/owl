@@ -9,7 +9,7 @@ import (
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/jmoiron/sqlx"
 	"github.com/owlmessenger/owl/pkg/dbutil"
-	"github.com/owlmessenger/owl/pkg/feeds"
+	"github.com/owlmessenger/owl/pkg/owldag"
 )
 
 // createStore allocates a new store ID which wil not be reused
@@ -132,11 +132,11 @@ func (s *txStore) List(ctx context.Context, span cadata.Span, ids []cadata.ID) (
 }
 
 func (s *txStore) MaxSize() int {
-	return feeds.MaxNodeSize
+	return 1 << 20
 }
 
 func (s *txStore) Hash(x []byte) cadata.ID {
-	return feeds.Hash(x)
+	return owldag.Hash(x)
 }
 
 func (s *txStore) count(id cadata.ID) (count int, err error) {

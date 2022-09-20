@@ -5,7 +5,7 @@ import (
 
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/brendoncarroll/go-tai64"
-	"github.com/owlmessenger/owl/pkg/feeds"
+	"github.com/owlmessenger/owl/pkg/owldag"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -14,7 +14,7 @@ type Elem struct {
 	Thread Path        `json:"thread,omitempty"`
 	After  []cadata.ID `json:"after,omitempty"`
 
-	Author    feeds.PeerID    `json:"a"`
+	Author    owldag.PeerID   `json:"a"`
 	Timestamp tai64.TAI64N    `json:"ts"`
 	Data      json.RawMessage `json:"data"`
 }

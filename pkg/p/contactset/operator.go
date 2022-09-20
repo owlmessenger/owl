@@ -14,12 +14,12 @@ import (
 	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/gotvc/got/pkg/gotkv/kvstreams"
 	"github.com/inet256/inet256/pkg/inet256"
-	"github.com/owlmessenger/owl/pkg/feeds"
+	"github.com/owlmessenger/owl/pkg/owldag"
 	"golang.org/x/exp/slices"
 )
 
 type (
-	PeerID = feeds.PeerID
+	PeerID = owldag.PeerID
 	State  = gotfs.Root
 )
 
@@ -164,9 +164,8 @@ func (o *Operator) ListNames(ctx context.Context, s cadata.Store, x State) (ret 
 	return ret, nil
 }
 
-func (o *Operator) Merge(ctx context.Context, s cadata.Store, xs []State) (State, error) {
+func (o *Operator) Merge(ctx context.Context, s cadata.Store, xs []State) (*State, error) {
 	// TODO: handle renames
-	var zero State
 	var its []kvstreams.Iterator
 	for _, x := range xs {
 		its = append(its, o.gotkv.NewIterator(s, x, gotkv.TotalSpan()))
@@ -174,13 +173,9 @@ func (o *Operator) Merge(ctx context.Context, s cadata.Store, xs []State) (State
 	m := kvstreams.NewMerger(s, its)
 	b := o.gotkv.NewBuilder(s)
 	if err := gotkv.CopyAll(ctx, b, m); err != nil {
-		return zero, err
+		return nil, err
 	}
-	y, err := b.Finish(ctx)
-	if err != nil {
-		return zero, err
-	}
-	return *y, nil
+	return b.Finish(ctx)
 }
 
 func (o *Operator) WhoIs(ctx context.Context, s cadata.Store, x State, peer PeerID) (string, error) {
@@ -231,7 +226,7 @@ func appendInfoKey(out []byte, uid *UID) []byte {
 	return out
 }
 
-func appendPeerKey(out []byte, uid *UID, peer feeds.PeerID) []byte {
+func appendPeerKey(out []byte, uid *UID, peer owldag.PeerID) []byte {
 	out = append(out, uid[:]...)
 	out = append(out, "PEER"...)
 	out = append(out, peer[:]...)

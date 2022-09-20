@@ -134,7 +134,7 @@ type PeerID = inet256.ID
 
 // ForEachDesc traverses the DAG in descending order of N, starting with ids.
 // Nodes with the same value of N can be visited in any order.
-func ForEachDesc[T any](ctx context.Context, s cadata.Store, ids []Ref, fn func(Ref, Node[T]) error) error {
+func ForEachDesc[T any](ctx context.Context, s cadata.Getter, ids []Ref, fn func(Ref, Node[T]) error) error {
 	nodes, err := getAllNodes[T](ctx, s, ids)
 	if err != nil {
 		return err
@@ -176,7 +176,7 @@ type Pair[T any] struct {
 
 // ForEachDescGroup calls fn with all the nodes in the graph, reachable from ids, with a given value of N
 // for each value of N descending down to 0.
-func ForEachDescGroup[T any](ctx context.Context, s cadata.Store, ids []Ref, fn func(uint64, []Pair[T]) error) error {
+func ForEachDescGroup[T any](ctx context.Context, s cadata.Getter, ids []Ref, fn func(uint64, []Pair[T]) error) error {
 	var n uint64 = math.MaxUint64
 	var group []Pair[T]
 	if err := ForEachDesc(ctx, s, ids, func(id Ref, node Node[T]) error {
@@ -198,22 +198,6 @@ func ForEachDescGroup[T any](ctx context.Context, s cadata.Store, ids []Ref, fn 
 		}
 	}
 	return nil
-}
-
-// NearestUnity finds a point in the history of ids where a value of N has a single node.
-func NearestUnity(ctx context.Context, s cadata.Store, ids IDSet[Ref]) (*Ref, error) {
-	stopIter := errors.New("stop iteration")
-	var ret *Ref
-	if err := ForEachDescGroup(ctx, s, ids, func(_ uint64, pairs []Pair[json.RawMessage]) error {
-		if len(pairs) == 1 {
-			ret = &pairs[0].ID
-			return stopIter
-		}
-		return nil
-	}); err != nil && !errors.Is(err, stopIter) {
-		return nil, err
-	}
-	return ret, nil
 }
 
 // HasAncestor determines if any of srcs have an ancestor target.
@@ -250,5 +234,16 @@ func hasAncestor(ctx context.Context, s cadata.Getter, srcs IDSet[Ref], target c
 
 // NCA finds the nearest common ancestor of xs
 func NCA(ctx context.Context, s cadata.Getter, xs []Ref) (*Ref, error) {
-	panic("")
+	stopIter := errors.New("stop iteration")
+	var ret *Ref
+	if err := ForEachDescGroup(ctx, s, xs, func(_ uint64, pairs []Pair[json.RawMessage]) error {
+		if len(pairs) == 1 {
+			ret = &pairs[0].ID
+			return stopIter
+		}
+		return nil
+	}); err != nil && !errors.Is(err, stopIter) {
+		return nil, err
+	}
+	return ret, nil
 }

@@ -9,8 +9,7 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/inet256/inet256/pkg/inet256"
-
-	"github.com/owlmessenger/owl/pkg/feeds"
+	"github.com/owlmessenger/owl/pkg/owldag"
 )
 
 type BlobPullReq struct {
@@ -54,7 +53,7 @@ func (c BlobPullClient) Pull(ctx context.Context, dst PeerID, id cadata.ID, buf 
 	if bytes.Equal(buf, id[:]) {
 		return 0, cadata.ErrNotFound
 	}
-	actual := feeds.Hash(buf[:n])
+	actual := owldag.Hash(buf[:n])
 	if actual != id {
 		return 0, cadata.ErrBadData
 	}

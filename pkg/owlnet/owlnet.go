@@ -8,12 +8,12 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/p/p2pmux"
 	"github.com/inet256/inet256/pkg/inet256"
-	"github.com/owlmessenger/owl/pkg/feeds"
+	"github.com/owlmessenger/owl/pkg/owldag"
 	"google.golang.org/grpc/codes"
 )
 
 type (
-	PeerID = feeds.PeerID
+	PeerID = owldag.PeerID
 	Swarm  = p2p.SecureAskSwarm[PeerID]
 )
 

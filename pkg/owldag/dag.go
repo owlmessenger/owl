@@ -2,7 +2,6 @@ package owldag
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv"
@@ -38,8 +37,7 @@ func New[T any](sch Scheme[T], dagStore, innerStore cadata.Store, state State[T]
 }
 
 func (d *DAG[T]) SaveBytes() []byte {
-	data, _ := json.Marshal(d.state)
-	return data
+	return d.state.Marshal()
 }
 
 // Modify calls fn to modify the DAG's state.
@@ -159,8 +157,27 @@ func (d *DAG[T]) AddNode(ctx context.Context, node Node[T]) error {
 	if err := CheckNode(ctx, d.dagStore, node); err != nil {
 		return err
 	}
-	getAllNodes[T](ctx, d.dagStore, node.Previous)
-	return nil
+	prevNodes, err := getAllNodes[T](ctx, d.dagStore, node.Previous)
+	if err != nil {
+		return err
+	}
+	// TODO: not sure about if we have to merge here
+	// Maybe we should document the guarantee
+	consult := func(PeerID) bool {
+		return true
+	}
+	eg, ctx2 := errgroup.WithContext(ctx)
+	for _, pn := range prevNodes {
+		pn := pn
+		eg.Go(func() error {
+			return d.scheme.ValidateStep(ctx2, d.innerStore, consult, pn.State, node.State)
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return err
+	}
+	_, err = PostNode(ctx, d.dagStore, node)
+	return err
 }
 
 func (d *DAG[T]) GetEpoch(ctx context.Context) (*Ref, error) {

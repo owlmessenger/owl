@@ -8,7 +8,7 @@ import (
 	"github.com/brendoncarroll/go-tai64"
 	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/owlmessenger/owl/pkg/cflog"
-	"github.com/owlmessenger/owl/pkg/feeds"
+	"github.com/owlmessenger/owl/pkg/owldag"
 )
 
 type (
@@ -30,7 +30,7 @@ func (o *Operator) NewEmpty(ctx context.Context, s cadata.Store) (*State, error)
 }
 
 type MessageParams struct {
-	Author    feeds.PeerID
+	Author    owldag.PeerID
 	Timestamp tai64.TAI64N
 
 	Type string
@@ -76,18 +76,26 @@ func (o *Operator) Read(ctx context.Context, s cadata.Store, x State, begin Path
 	return n, nil
 }
 
-func (o *Operator) Merge(ctx context.Context, s cadata.Store, xs []State) (State, error) {
+func (o *Operator) Merge(ctx context.Context, s cadata.Store, xs []State) (*State, error) {
 	return o.cflog.Merge(ctx, s, xs)
 }
 
-func (o *Operator) Validate(ctx context.Context, s cadata.Store, author cflog.PeerID, prev, next State) error {
-	return o.cflog.Validate(ctx, s, author, prev, next)
+func (o *Operator) Validate(ctx context.Context, s cadata.Store, consult owldag.ConsultFunc, x State) error {
+	return o.cflog.Validate(ctx, s, consult, x)
+}
+
+func (o *Operator) ValidateStep(ctx context.Context, s cadata.Store, consult owldag.ConsultFunc, prev, next State) error {
+	return o.cflog.ValidateStep(ctx, s, consult, prev, next)
+}
+
+func (o *Operator) Sync(ctx context.Context, src, dst cadata.Store, x State) error {
+	return o.cflog.Sync(ctx, src, dst, x)
 }
 
 type Message struct {
 	Path Path
 
-	Author    feeds.PeerID
+	Author    owldag.PeerID
 	After     []cadata.ID
 	Timestamp tai64.TAI64N
 

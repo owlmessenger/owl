@@ -11,8 +11,8 @@ import (
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/brendoncarroll/go-tai64"
 	"github.com/gotvc/got/pkg/gotkv"
-	"github.com/owlmessenger/owl/pkg/feeds"
 	"github.com/owlmessenger/owl/pkg/heap"
+	"github.com/owlmessenger/owl/pkg/owldag"
 )
 
 const MaxEntryLen = 4096
@@ -20,7 +20,7 @@ const MaxEntryLen = 4096
 type (
 	Root   = gotkv.Root
 	Span   = state.Span[Path]
-	PeerID = feeds.PeerID
+	PeerID = owldag.PeerID
 )
 
 const (
@@ -42,7 +42,7 @@ func (o *Operator) NewEmpty(ctx context.Context, s cadata.Store) (*Root, error) 
 
 // EntryParams create an entry in the log.
 type EntryParams struct {
-	Author    feeds.PeerID
+	Author    owldag.PeerID
 	Data      json.RawMessage
 	Timestamp tai64.TAI64N
 }
@@ -124,15 +124,7 @@ func (o *Operator) Read(ctx context.Context, s cadata.Store, x Root, begin Path,
 	return n, nil
 }
 
-func (o *Operator) Merge(ctx context.Context, s cadata.Store, xs []Root) (Root, error) {
-	r, err := o.merge(ctx, s, xs)
-	if err != nil {
-		return Root{}, err
-	}
-	return *r, nil
-}
-
-func (o *Operator) merge(ctx context.Context, s cadata.Store, xs []Root) (*Root, error) {
+func (o *Operator) Merge(ctx context.Context, s cadata.Store, xs []Root) (*Root, error) {
 	// TODO: determine first key in diff and use that to avoid remerging the beginning.
 	span := gotkv.TotalSpan()
 	its := make([]*gotkv.Iterator, len(xs))
@@ -186,8 +178,16 @@ func (o *Operator) interleave(ctx context.Context, b *gotkv.Builder, base Path, 
 	return nil
 }
 
-func (o *Operator) Validate(ctx context.Context, s cadata.Store, author PeerID, prev, next Root) error {
+func (o *Operator) Validate(ctx context.Context, s cadata.Store, consult owldag.ConsultFunc, x Root) error {
 	return nil
+}
+
+func (o *Operator) ValidateStep(ctx context.Context, s cadata.Store, consult owldag.ConsultFunc, prev, next Root) error {
+	return nil
+}
+
+func (o *Operator) Sync(ctx context.Context, src, dst cadata.Store, x Root) error {
+	return o.gotkv.Sync(ctx, src, dst, x, func(gotkv.Entry) error { return nil })
 }
 
 func putElem(ctx context.Context, b *gotkv.Builder, p Path, rev uint32, ev Elem) error {
