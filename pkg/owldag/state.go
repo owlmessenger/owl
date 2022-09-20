@@ -10,8 +10,10 @@ import (
 	"github.com/owlmessenger/owl/pkg/slices2"
 )
 
+// State is the current state of the feed.
 type State[T any] struct {
-	Max  uint64 `json:"max"`
+	Max uint64 `json:"max"`
+	// Prev is the set of heads needed to reference the entire graph.
 	Prev []Head `json:"prev"`
 
 	// Heads is the root of the head for each peer.

@@ -8,11 +8,14 @@ import (
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv"
+	"github.com/gotvc/got/pkg/gotkv/kvstreams"
 	"github.com/inet256/inet256/pkg/inet256"
 )
 
 const headPurpose = "owl/dag/head"
 
+// Head is a signed reference to a Node in the DAG
+// It represents a single peer's view of the DAG at the time of their last modification.
 type Head struct {
 	Ref       Ref    `json:"ref"`
 	PublicKey []byte `json:"pub_key"`
@@ -60,7 +63,7 @@ func addHead(ctx context.Context, kvop *gotkv.Operator, s cadata.Store, x gotkv.
 	return kvop.Put(ctx, s, x, peerID[:], data)
 }
 
-func getHeadRef(ctx context.Context, kvop *gotkv.Operator, s cadata.Store, x gotkv.Root, id PeerID) (*Ref, error) {
+func getHead(ctx context.Context, kvop *gotkv.Operator, s cadata.Store, x gotkv.Root, id PeerID) (*Head, error) {
 	var h Head
 	if err := kvop.GetF(ctx, s, x, id[:], func(v []byte) error {
 		return json.Unmarshal(v, &h)
@@ -77,7 +80,23 @@ func getHeadRef(ctx context.Context, kvop *gotkv.Operator, s cadata.Store, x got
 	if err := h.Verify(); err != nil {
 		return nil, err
 	}
+	return &h, nil
+}
+
+func getHeadRef(ctx context.Context, kvop *gotkv.Operator, s cadata.Store, x gotkv.Root, id PeerID) (*Ref, error) {
+	h, err := getHead(ctx, kvop, s, x, id)
+	if err != nil {
+		return nil, err
+	}
 	return &h.Ref, nil
+}
+
+func validateHeads(ctx context.Context, kvop *gotkv.Operator, s cadata.Store, left, right gotkv.Root) error {
+	leftIt := kvop.NewIterator(s, left, gotkv.TotalSpan())
+	rightIt := kvop.NewIterator(s, right, gotkv.TotalSpan())
+	return kvstreams.Diff(ctx, s, leftIt, rightIt, gotkv.TotalSpan(), func(key, lv, rv []byte) error {
+		return nil
+	})
 }
 
 func checkReplay(ctx context.Context, kvop *gotkv.Operator, s cadata.Store, headRoot gotkv.Root, h Head) error {

@@ -232,8 +232,7 @@ func hasAncestor(ctx context.Context, s cadata.Getter, srcs IDSet[Ref], target R
 		yes, err := hasAncestor(ctx, s, node.Previous, target, targetN)
 		if err != nil {
 			return false, err
-		}
-		if yes {
+		} else if yes {
 			return true, nil
 		}
 	}

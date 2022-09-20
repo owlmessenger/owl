@@ -24,6 +24,8 @@ type DAG[T any] struct {
 	state State[T]
 }
 
+// New creates a new DAG using dagStore to store nodes, and passing innerStore to
+// the underlying scheme as needed.
 func New[T any](sch Scheme[T], dagStore, innerStore cadata.Store, state State[T]) *DAG[T] {
 	kvop := gotkv.NewOperator(1<<12, 1<<16)
 	return &DAG[T]{
@@ -154,35 +156,6 @@ func (d *DAG[T]) AddHead(ctx context.Context, h Head) error {
 	return nil
 }
 
-func (d *DAG[T]) AddNode(ctx context.Context, node Node[T]) error {
-	if err := CheckNode(ctx, d.dagStore, node); err != nil {
-		return err
-	}
-	prevNodes, err := getAllNodes[T](ctx, d.dagStore, node.Previous)
-	if err != nil {
-		return err
-	}
-
-	consult := func(PeerID) bool {
-		return true
-	}
-	// TODO: not sure about if we have to merge here
-	// Maybe we should document the guarantee that:
-	//   Validate(Merge(x1 ... xn)) = Validate(x1) & ... & Validate(xn)
-	eg, ctx2 := errgroup.WithContext(ctx)
-	for _, pn := range prevNodes {
-		pn := pn
-		eg.Go(func() error {
-			return d.scheme.ValidateStep(ctx2, d.innerStore, consult, pn.State, node.State)
-		})
-	}
-	if err := eg.Wait(); err != nil {
-		return err
-	}
-	_, err = PostNode(ctx, d.dagStore, node)
-	return err
-}
-
 func (d *DAG[T]) GetEpoch(ctx context.Context) (*Ref, error) {
 	return NCA(ctx, d.dagStore, d.state.PrevRefs())
 }
@@ -208,20 +181,55 @@ func (d *DAG[T]) pullNode(ctx context.Context, src cadata.Getter, ref Ref) error
 	if err != nil {
 		return err
 	}
-	// TODO: errgroup
+	eg := &errgroup.Group{}
 	for _, prevRef := range node.Previous {
-		if err := d.pullNode(ctx, src, prevRef); err != nil {
-			return err
-		}
+		prevRef := prevRef
+		eg.Go(func() error {
+			return d.pullNode(ctx, src, prevRef)
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return err
 	}
 	if err := CheckNode(ctx, src, *node); err != nil {
 		return err
 	}
 	// At this point all the previous nodes will be in s.dagStore
-	// TODO: validate schema
+
+	if err := d.pullHeadTree(ctx, src, node.Sigs); err != nil {
+		return err
+	}
+
+	// Validate using the schema
+	consult := func(PeerID) bool {
+		// TODO: check the heads tree
+		return true
+	}
+	// TODO: not sure about if we have to merge here
+	// Maybe we should document the guarantee that:
+	//   Validate(Merge(x1 ... xn)) = Validate(x1) & ... & Validate(xn)
+	eg, ctx2 := errgroup.WithContext(ctx)
+	for _, prevRef := range node.Previous {
+		prevRef := prevRef
+		eg.Go(func() error {
+			pn, err := GetNode[T](ctx2, src, prevRef)
+			if err != nil {
+				return err
+			}
+			return d.scheme.ValidateStep(ctx2, d.innerStore, consult, pn.State, node.State)
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return err
+	}
 
 	_, err = PostNode(ctx, d.dagStore, *node)
 	return err
+}
+
+func (d *DAG[T]) pullHeadTree(ctx context.Context, src cadata.Getter, x gotkv.Root) error {
+	// TODO: validate
+	return d.gotkv.Sync(ctx, src, d.dagStore, x, func(gotkv.Entry) error { return nil })
 }
 
 func max[T constraints.Ordered](a, b T) T {
