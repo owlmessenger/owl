@@ -11,8 +11,8 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	"github.com/owlmessenger/owl/pkg/dbutil"
-	"github.com/owlmessenger/owl/pkg/p/contactset"
-	"github.com/owlmessenger/owl/pkg/p/directory"
+	"github.com/owlmessenger/owl/pkg/schemes/contactset"
+	"github.com/owlmessenger/owl/pkg/schemes/directory"
 )
 
 func (s *Server) CreatePersona(ctx context.Context, req *CreatePersonaReq) error {
@@ -37,7 +37,7 @@ func (s *Server) CreatePersona(ctx context.Context, req *CreatePersonaReq) error
 		if err := assocVol(tx, personaID, csVol, contactSetScheme); err != nil {
 			return err
 		}
-		if _, err := initFeed(tx, csVol, func(s cadata.Store) (*contactset.State, error) {
+		if _, err := initDAG(tx, csVol, func(s cadata.Store) (*contactset.State, error) {
 			op := contactset.New()
 			return op.New(ctx, s)
 		}); err != nil {
@@ -51,7 +51,7 @@ func (s *Server) CreatePersona(ctx context.Context, req *CreatePersonaReq) error
 		if err := assocVol(tx, personaID, dirVol, directoryScheme); err != nil {
 			return err
 		}
-		if _, err := initFeed(tx, dirVol, func(s cadata.Store) (*directory.State, error) {
+		if _, err := initDAG(tx, dirVol, func(s cadata.Store) (*directory.State, error) {
 			op := directory.New()
 			return op.New(ctx, s)
 		}); err != nil {

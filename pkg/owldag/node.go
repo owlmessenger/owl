@@ -1,13 +1,13 @@
-package feeds
+package owldag
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"math"
 
 	"github.com/brendoncarroll/go-state/cadata"
+	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/inet256/inet256/pkg/inet256"
 	"github.com/owlmessenger/owl/pkg/heap"
 	"golang.org/x/crypto/sha3"
@@ -17,27 +17,27 @@ const MaxNodeSize = 1 << 16
 
 type Ref = cadata.ID
 
-// Node is an entry in the Feed.
-// Also a Node/Vertex in the DAG
-type Node[T any] struct {
-	N        uint64     `json:"n"`
-	Previous IDSet[Ref] `json:"prevs"`
-	Author   PeerID     `json:"author,omitempty"`
-
-	Salt  []byte `json:"salt,omitempty"`
-	State T      `json:"state"`
-}
-
-func Hash(x []byte) Ref {
-	return sha3.Sum256(x)
+func Hash(x []byte) (ret Ref) {
+	sha3.ShakeSum256(ret[:], x)
+	return ret
 }
 
 func NewRef[T any](e Node[T]) Ref {
 	return Hash(e.Marshal())
 }
 
-func IDFromBytes(x []byte) Ref {
+func RefFromBytes(x []byte) Ref {
 	return cadata.IDFromBytes(x)
+}
+
+// Node is a Node/Vertex in the DAG
+type Node[T any] struct {
+	N        uint64     `json:"n"`
+	Previous IDSet[Ref] `json:"prevs"`
+
+	Salt  []byte     `json:"salt,omitempty"`
+	State T          `json:"state"`
+	Sigs  gotkv.Root `json:"sigs"`
 }
 
 func ParseNode[T any](data []byte) (*Node[T], error) {
@@ -57,37 +57,46 @@ func (n *Node[T]) Marshal() []byte {
 }
 
 func PostNode[T any](ctx context.Context, s cadata.Poster, n Node[T]) (*Ref, error) {
-	id, err := s.Post(ctx, n.Marshal())
+	data := n.Marshal()
+	if len(data) > MaxNodeSize {
+		return nil, errors.New("owldag: node too big")
+	}
+	id, err := s.Post(ctx, data)
 	if err != nil {
 		return nil, err
 	}
 	return &id, nil
 }
 
-// GetNode retreives the node with id from s.
-func GetNode[T any](ctx context.Context, s cadata.Getter, id Ref) (*Node[T], error) {
+// GetNode retreives the node at ref from s
+func GetNode[T any](ctx context.Context, s cadata.Getter, ref Ref) (*Node[T], error) {
 	var node *Node[T]
-	if err := cadata.GetF(ctx, s, id, func(data []byte) error {
+	if err := cadata.GetF(ctx, s, ref, func(data []byte) error {
 		var err error
 		node, err = ParseNode[T](data)
 		return err
 	}); err != nil {
 		return nil, err
 	}
-	if node.N > 0 && node.Author.IsZero() {
-		return nil, fmt.Errorf("node is missing author")
-	}
-	if node.N == 0 && !node.Author.IsZero() {
-		return nil, fmt.Errorf("initial node should not have author")
-	}
 	return node, nil
 }
 
 // CheckNode runs context independent checks on the node.
+// CheckNode:
+// - ensures that all the nodes which are referenced by node exist.
+// - that the node's N is exactly 1 greater than the max of the previous nodes.
+// - is NOT recursive.  It is assumed that nodes in s are already valid.
 func CheckNode[T any](ctx context.Context, s cadata.Getter, node Node[T]) error {
 	if node.N > 0 && len(node.Previous) == 0 {
 		return errors.New("nodes with N > 0 must reference another node")
 	}
+	if node.N == 0 && len(node.Salt) == 0 {
+		return errors.New("initial node missing salt")
+	}
+	if node.N > 0 && node.Salt != nil {
+		return errors.New("non-initial nodes cannot have a salt")
+	}
+
 	previous, err := getAllNodes[T](ctx, s, node.Previous)
 	if err != nil {
 		return err
@@ -101,21 +110,6 @@ func CheckNode[T any](ctx context.Context, s cadata.Getter, node Node[T]) error 
 	}
 	if node.N != expectedN {
 		return ErrBadN[T]{Have: node.N, Want: expectedN, Node: node}
-	}
-	if err := checkSenders(previous); err != nil {
-		return err
-	}
-	return nil
-}
-
-// checkSenders ensures that each Node in previous has a unique sender.
-func checkSenders[T any](previous []Node[T]) error {
-	senders := map[PeerID]struct{}{}
-	for _, node := range previous {
-		if _, exists := senders[node.Author]; exists {
-			return errors.New("a valid set of heads can only contain one head from each sender")
-		}
-		senders[node.Author] = struct{}{}
 	}
 	return nil
 }
@@ -137,7 +131,7 @@ type PeerID = inet256.ID
 
 // ForEachDesc traverses the DAG in descending order of N, starting with ids.
 // Nodes with the same value of N can be visited in any order.
-func ForEachDesc[T any](ctx context.Context, s cadata.Store, ids []Ref, fn func(Ref, Node[T]) error) error {
+func ForEachDesc[T any](ctx context.Context, s cadata.Getter, ids []Ref, fn func(Ref, Node[T]) error) error {
 	nodes, err := getAllNodes[T](ctx, s, ids)
 	if err != nil {
 		return err
@@ -179,7 +173,7 @@ type Pair[T any] struct {
 
 // ForEachDescGroup calls fn with all the nodes in the graph, reachable from ids, with a given value of N
 // for each value of N descending down to 0.
-func ForEachDescGroup[T any](ctx context.Context, s cadata.Store, ids []Ref, fn func(uint64, []Pair[T]) error) error {
+func ForEachDescGroup[T any](ctx context.Context, s cadata.Getter, ids []Ref, fn func(uint64, []Pair[T]) error) error {
 	var n uint64 = math.MaxUint64
 	var group []Pair[T]
 	if err := ForEachDesc(ctx, s, ids, func(id Ref, node Node[T]) error {
@@ -203,23 +197,27 @@ func ForEachDescGroup[T any](ctx context.Context, s cadata.Store, ids []Ref, fn 
 	return nil
 }
 
-// NearestUnity finds a point in the history of ids where a value of N has a single node.
-func NearestUnity(ctx context.Context, s cadata.Store, ids IDSet[Ref]) (*Ref, error) {
-	stopIter := errors.New("stop iteration")
-	var ret *Ref
-	if err := ForEachDescGroup(ctx, s, ids, func(_ uint64, pairs []Pair[json.RawMessage]) error {
-		if len(pairs) == 1 {
-			ret = &pairs[0].ID
-			return stopIter
-		}
-		return nil
-	}); err != nil && !errors.Is(err, stopIter) {
-		return nil, err
+// AnyHasAncestor determines if any of srcs have an ancestor target.
+// Nodes are considered to be their own ancestor
+func AnyHasAncestor(ctx context.Context, s cadata.Getter, srcs IDSet[Ref], ancRef cadata.ID) (bool, error) {
+	target, err := GetNode[json.RawMessage](ctx, s, ancRef)
+	if err != nil {
+		return false, err
 	}
-	return ret, nil
+	return hasAncestor(ctx, s, srcs, ancRef, target.N)
 }
 
-func reachableFrom(ctx context.Context, s cadata.Getter, srcs IDSet[Ref], target cadata.ID, targetN uint64) (bool, error) {
+// HasAncestors returns true if srcRef has ancRef as an ancestor.
+// Nodes are considered to be their own ancestor.
+func HasAncestor(ctx context.Context, s cadata.Getter, srcRef Ref, ancRef cadata.ID) (bool, error) {
+	target, err := GetNode[json.RawMessage](ctx, s, ancRef)
+	if err != nil {
+		return false, err
+	}
+	return hasAncestor(ctx, s, NewIDSet(srcRef), ancRef, target.N)
+}
+
+func hasAncestor(ctx context.Context, s cadata.Getter, srcs IDSet[Ref], target Ref, targetN uint64) (bool, error) {
 	if srcs.Contains(target) {
 		return true, nil
 	}
@@ -231,13 +229,17 @@ func reachableFrom(ctx context.Context, s cadata.Getter, srcs IDSet[Ref], target
 		if node.N <= targetN {
 			continue
 		}
-		yes, err := reachableFrom(ctx, s, node.Previous, target, targetN)
+		yes, err := hasAncestor(ctx, s, node.Previous, target, targetN)
 		if err != nil {
 			return false, err
-		}
-		if yes {
+		} else if yes {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+// NCA finds the nearest common ancestor of xs
+func NCA(ctx context.Context, s cadata.Getter, xs []Ref) (*Ref, error) {
+	panic("not implemented")
 }

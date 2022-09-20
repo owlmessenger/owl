@@ -12,12 +12,12 @@ import (
 	"github.com/brendoncarroll/go-tai64"
 	"github.com/jmoiron/sqlx"
 
+	"github.com/owlmessenger/owl/pkg/cflog"
 	"github.com/owlmessenger/owl/pkg/dbutil"
-	"github.com/owlmessenger/owl/pkg/feeds"
-	"github.com/owlmessenger/owl/pkg/p/contactset"
-	"github.com/owlmessenger/owl/pkg/p/directmsg"
-	"github.com/owlmessenger/owl/pkg/p/directory"
-	"github.com/owlmessenger/owl/pkg/p/room"
+	"github.com/owlmessenger/owl/pkg/owldag"
+	"github.com/owlmessenger/owl/pkg/schemes/contactset"
+	"github.com/owlmessenger/owl/pkg/schemes/directmsg"
+	"github.com/owlmessenger/owl/pkg/schemes/directory"
 	"github.com/owlmessenger/owl/pkg/slices2"
 )
 
@@ -45,21 +45,6 @@ func (s *Server) CreateChannel(ctx context.Context, req *CreateChannelReq) error
 		return err
 	}
 
-	// initFunc(tx *sqlx.Tx)
-	// switch req.Scheme {
-	// case DirectMessageV0:
-	// 	newDirValue = func(fid feeds.ID) directory.Value {
-	// 		return directory.Value{
-	// 			DirectMessage: &directory.DirectMessage{
-	// 				Members: contactUIDs,
-	// 				Feed:    fid,
-	// 			},
-	// 		}
-	// 	}
-	// default:
-	// 	return fmt.Errorf("%q is not a valid channel scheme", req.Scheme)
-	// }
-
 	// create the new feed and channel state
 	dirValue, err := dbutil.DoTx1(ctx, s.db, func(tx *sqlx.Tx) (*directory.Value, error) {
 		volID, err := createVolume(tx)
@@ -71,7 +56,7 @@ func (s *Server) CreateChannel(ctx context.Context, req *CreateChannelReq) error
 		}
 		switch req.Scheme {
 		case DirectMessageV0:
-			fid, err := initFeed(tx, volID, func(s cadata.Store) (*directmsg.State, error) {
+			fid, err := initDAG(tx, volID, func(s cadata.Store) (*directmsg.State, error) {
 				op := directmsg.New()
 				return op.NewEmpty(ctx, s)
 			})
@@ -80,7 +65,7 @@ func (s *Server) CreateChannel(ctx context.Context, req *CreateChannelReq) error
 			}
 			return &directory.Value{
 				DirectMessage: &directory.DirectMessage{
-					Epochs:  feeds.NewIDSet(*fid),
+					Epochs:  owldag.NewIDSet(*fid),
 					Members: contactUIDs,
 				},
 			}, nil
@@ -115,7 +100,10 @@ func (s *Server) JoinChannel(ctx context.Context, req *JoinChannelReq) error {
 			return nil, errors.New("channel already exists with that name")
 		}
 		return op.Put(ctx, s, x, req.Name, directory.Value{
-			Room: &directory.Room{Feed: req.Root},
+			DirectMessage: &directory.DirectMessage{
+				Epochs:  owldag.NewIDSet(req.Epoch),
+				Members: nil, // TODO: lookup contact UIDs
+			},
 		})
 	})
 }
@@ -226,7 +214,7 @@ func (s *Server) Read(ctx context.Context, req *ReadReq) ([]Entry, error) {
 		}
 		op := directmsg.New()
 		buf := make([]directmsg.Message, 128)
-		n, err := op.Read(ctx, store, *x, room.Path(req.Begin), buf)
+		n, err := op.Read(ctx, store, *x, cflog.Path(req.Begin), buf)
 		if err != nil {
 			return nil, err
 		}

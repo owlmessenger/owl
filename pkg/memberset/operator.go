@@ -9,10 +9,10 @@ import (
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/gotvc/got/pkg/gotkv/kvstreams"
-	"github.com/owlmessenger/owl/pkg/feeds"
+	"github.com/owlmessenger/owl/pkg/owldag"
 )
 
-type PeerID = feeds.PeerID
+type PeerID = owldag.PeerID
 
 type Peer struct {
 	ID       PeerID
@@ -39,11 +39,11 @@ func (o *Operator) NewEmpty(ctx context.Context, s cadata.Store, peers []PeerID)
 	return b.Finish(ctx)
 }
 
-func (o *Operator) Get(ctx context.Context, s cadata.Store, x State, id PeerID) (*Peer, error) {
+func (o *Operator) Get(ctx context.Context, s cadata.Getter, x State, id PeerID) (*Peer, error) {
 	panic("")
 }
 
-func (o *Operator) AddPeers(ctx context.Context, s cadata.Store, x State, peers []Peer, nonce feeds.Ref) (*State, error) {
+func (o *Operator) AddPeers(ctx context.Context, s cadata.Store, x State, peers []Peer, nonce owldag.Ref) (*State, error) {
 	var muts []gotkv.Mutation
 	for _, peer := range peers {
 		if exists, err := o.Exists(ctx, s, x, peer.ID); err != nil {
@@ -65,7 +65,7 @@ func (o *Operator) RemovePeers(ctx context.Context, s cadata.Store, x State, pee
 	var muts []gotkv.Mutation
 	for _, peerID := range peers {
 		if err := o.gotkv.ForEach(ctx, s, x, gotkv.PrefixSpan(appendAddPrefix(nil, peerID)), func(ent gotkv.Entry) error {
-			var nonce feeds.Ref
+			var nonce owldag.Ref
 			copy(nonce[:], ent.Value)
 			k := appendRemoveKey(nil, peerID, nonce)
 			mut := gotkv.Mutation{
@@ -97,7 +97,7 @@ func (o *Operator) List(ctx context.Context, s cadata.Store, x State, peer PeerI
 }
 
 // Validate determines if the transision is valid
-func (o *Operator) Validate(ctx context.Context, s cadata.Store, authorID PeerID, prev, next State) error {
+func (o *Operator) Validate(ctx context.Context, s cadata.Getter, authorID PeerID, prev, next State) error {
 	peer, err := o.Get(ctx, s, prev, authorID)
 	if err != nil {
 		return err
@@ -127,7 +127,7 @@ func appendInfoKey(out []byte, x PeerID) []byte {
 	return out
 }
 
-func appendAddKey(out []byte, x PeerID, nonce feeds.Ref) []byte {
+func appendAddKey(out []byte, x PeerID, nonce owldag.Ref) []byte {
 	out = append(out, '+')
 	out = append(out, x[:]...)
 	out = append(out, nonce[:]...)
@@ -140,7 +140,7 @@ func appendAddPrefix(out []byte, x PeerID) []byte {
 	return out
 }
 
-func appendRemoveKey(out []byte, x PeerID, nonce feeds.Ref) []byte {
+func appendRemoveKey(out []byte, x PeerID, nonce owldag.Ref) []byte {
 	out = append(out, '-')
 	out = append(out, x[:]...)
 	out = append(out, nonce[:]...)

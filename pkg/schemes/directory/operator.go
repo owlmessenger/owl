@@ -10,27 +10,22 @@ import (
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/gotvc/got/pkg/gotkv/kvstreams"
-	"github.com/owlmessenger/owl/pkg/feeds"
-	"github.com/owlmessenger/owl/pkg/p/contactset"
+	"github.com/owlmessenger/owl/pkg/owldag"
+	"github.com/owlmessenger/owl/pkg/schemes/contactset"
 	"github.com/owlmessenger/owl/pkg/slices2"
 	"golang.org/x/exp/slices"
 )
 
 type DirectMessage struct {
-	Epochs  feeds.IDSet[feeds.ID] `json:"epochs"`
-	Members []contactset.UID      `json:"members"`
-}
-
-type Room struct {
-	Feed feeds.ID `json:"feed_id"`
+	Epochs  owldag.IDSet[cadata.ID] `json:"epochs"`
+	Members []contactset.UID        `json:"members"`
 }
 
 type Value struct {
 	DirectMessage *DirectMessage `json:"direct_message"`
-	Room          *Room          `json:"room"`
 
 	// TODO: support shared directories
-	// Directory *feeds.ID
+	// Directory *owldag.ID
 }
 
 type State = gotkv.Root
@@ -100,8 +95,7 @@ func (o *Operator) List(ctx context.Context, s cadata.Store, x State, span state
 	return ret, nil
 }
 
-func (o *Operator) Merge(ctx context.Context, s cadata.Store, xs []State) (State, error) {
-	var zero State
+func (o *Operator) Merge(ctx context.Context, s cadata.Store, xs []State) (*State, error) {
 	var its []kvstreams.Iterator
 	for _, x := range xs {
 		its = append(its, o.gotkv.NewIterator(s, x, gotkv.TotalSpan()))
@@ -109,15 +103,7 @@ func (o *Operator) Merge(ctx context.Context, s cadata.Store, xs []State) (State
 	m := kvstreams.NewMerger(s, its)
 	b := o.gotkv.NewBuilder(s)
 	if err := gotkv.CopyAll(ctx, b, m); err != nil {
-		return zero, err
+		return nil, err
 	}
-	y, err := b.Finish(ctx)
-	if err != nil {
-		return zero, err
-	}
-	return *y, nil
-}
-
-func (o *Operator) Validate(ctx context.Context, s cadata.Store, author feeds.PeerID, prev, next State) error {
-	return nil
+	return b.Finish(ctx)
 }

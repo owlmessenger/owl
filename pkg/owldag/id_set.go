@@ -1,4 +1,4 @@
-package feeds
+package owldag
 
 import (
 	"bytes"

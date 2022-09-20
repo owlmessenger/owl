@@ -11,7 +11,7 @@ import (
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/inet256/inet256/pkg/inet256"
 
-	"github.com/owlmessenger/owl/pkg/feeds"
+	"github.com/owlmessenger/owl/pkg/owldag"
 	"github.com/owlmessenger/owl/pkg/owlnet"
 )
 
@@ -202,9 +202,9 @@ type CreateChannelReq struct {
 }
 
 type JoinChannelReq struct {
-	Persona string   `json:"persona"`
-	Name    string   `json:"name"`
-	Root    feeds.ID `json:"root"`
+	Persona string     `json:"persona"`
+	Name    string     `json:"name"`
+	Epoch   owldag.Ref `json:"epoch"`
 }
 
 type ListChannelReq struct {

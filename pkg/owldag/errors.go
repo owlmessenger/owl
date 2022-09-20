@@ -1,13 +1,13 @@
-package feeds
+package owldag
 
 import "fmt"
 
-type ErrPeerNotInFeed struct {
+type ErrNotAllowed struct {
 	Peer PeerID
 }
 
-func (e ErrPeerNotInFeed) Error() string {
-	return fmt.Sprintf("peer %v not in feed", e.Peer)
+func (e ErrNotAllowed) Error() string {
+	return fmt.Sprintf("peer %v is not allowed", e.Peer)
 }
 
 type ErrBadN[T any] struct {
