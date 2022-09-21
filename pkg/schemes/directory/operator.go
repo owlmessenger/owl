@@ -10,10 +10,11 @@ import (
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/gotvc/got/pkg/gotkv/kvstreams"
+	"golang.org/x/exp/slices"
+
 	"github.com/owlmessenger/owl/pkg/owldag"
 	"github.com/owlmessenger/owl/pkg/schemes/contactset"
 	"github.com/owlmessenger/owl/pkg/slices2"
-	"golang.org/x/exp/slices"
 )
 
 type DirectMessage struct {

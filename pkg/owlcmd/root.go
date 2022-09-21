@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"github.com/brendoncarroll/go-p2p/p2ptest"
-	"github.com/inet256/inet256/networks/floodnet"
+	"github.com/inet256/inet256/networks/beaconnet"
 	"github.com/inet256/inet256/pkg/mesh256"
 	"github.com/owlmessenger/owl/pkg/owl"
 	"github.com/spf13/cobra"
@@ -29,7 +29,7 @@ func NewRootCmd() *cobra.Command {
 			return err
 		}
 		nwk := mesh256.NewServer(mesh256.Params{
-			NewNetwork: floodnet.Factory,
+			NewNetwork: beaconnet.Factory,
 			PrivateKey: p2ptest.NewTestKey(nil, 0),
 			Peers:      mesh256.NewPeerStore(),
 		})
@@ -47,6 +47,7 @@ func NewRootCmd() *cobra.Command {
 		newPersonaCmd(func() owl.PersonaAPI { return s }),
 		newChannelCmd(func() owl.ChannelAPI { return s }),
 		newContactCmd(func() owl.ContactAPI { return s }),
+		newServeCmd(func() owl.API { return s }),
 	} {
 		cmd.AddCommand(c)
 	}
