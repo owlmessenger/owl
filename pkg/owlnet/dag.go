@@ -2,10 +2,10 @@ package owlnet
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 
 	"github.com/brendoncarroll/go-p2p"
+	"google.golang.org/grpc/codes"
 
 	"github.com/owlmessenger/owl/pkg/owldag"
 )
@@ -15,21 +15,21 @@ type DAGReq struct {
 	PushHeads *PushHeadsReq `json:"push_heads,omitempty"`
 }
 
+type DAGRes struct {
+	Error *WireError
+
+	GetHeads  []owldag.Head
+	PushHeads *struct{}
+}
+
 type GetHeadsReq struct {
 	Epoch owldag.Ref `json:"epoch"`
 }
 
 type PushHeadsReq struct {
-	Epoch owldag.Ref   `json:"epoch"`
-	Heads []owldag.Ref `json:"heads"`
-	Blobs []byte       `json:"blobs"`
-}
-
-type DAGRes struct {
-	Error *WireError
-
-	GetHeads  []owldag.Head
-	PushHeads []owldag.Head
+	Epoch owldag.Ref    `json:"epoch"`
+	Heads []owldag.Head `json:"heads"`
+	Blobs []byte        `json:"blobs"`
 }
 
 type DAGClient struct {
@@ -48,7 +48,7 @@ func (fc DAGClient) GetHeads(ctx context.Context, dst PeerID, id owldag.Ref) ([]
 	return res.GetHeads, nil
 }
 
-func (fc DAGClient) PushHeads(ctx context.Context, dst PeerID, fid owldag.Ref, heads []owldag.Ref) error {
+func (fc DAGClient) PushHeads(ctx context.Context, dst PeerID, fid owldag.Ref, heads []owldag.Head) error {
 	res, err := fc.ask(ctx, dst, DAGReq{
 		PushHeads: &PushHeadsReq{
 			Epoch: fid,
@@ -81,9 +81,9 @@ type DAGServer struct {
 }
 
 func (s DAGServer) HandleAsk(ctx context.Context, resp []byte, msg p2p.Message[PeerID]) int {
-	var req DAGReq
-	if err := json.Unmarshal(resp, &req); err != nil {
-		return -1
-	}
-	return 0
+	return serveJSON(ctx, resp, msg, func(req DAGReq) (*DAGRes, error) {
+		return &DAGRes{
+			Error: &WireError{Code: codes.Unimplemented, Msg: "Unimplemented"},
+		}, nil
+	})
 }

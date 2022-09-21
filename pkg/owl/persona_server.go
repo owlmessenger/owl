@@ -54,19 +54,19 @@ func newPersonaServer(db *sqlx.DB, inetsrv inet256.Service, personaID int, membe
 		cf:    cf,
 	}
 	ps.contactRep = newReplicator(replicatorParams[contactset.State]{
-		Context:     ctx,
-		GetNode:     ps.getNode,
-		NewProtocol: ps.newContactSetScheme(),
+		Context: ctx,
+		GetNode: ps.getNode,
+		Scheme:  ps.newContactSetScheme(),
 	})
 	ps.directoryRep = newReplicator(replicatorParams[directory.State]{
-		Context:     ctx,
-		GetNode:     ps.getNode,
-		NewProtocol: ps.newDirectoryScheme(),
+		Context: ctx,
+		GetNode: ps.getNode,
+		Scheme:  ps.newDirectoryScheme(),
 	})
 	ps.dmRep = newReplicator(replicatorParams[directmsg.State]{
-		Context:     ctx,
-		GetNode:     ps.getNode,
-		NewProtocol: ps.newDirectMsgScheme(),
+		Context: ctx,
+		GetNode: ps.getNode,
+		Scheme:  ps.newDirectMsgScheme(),
 	})
 	ps.eg.Go(func() error { return ps.run(ctx) })
 	return ps

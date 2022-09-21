@@ -19,7 +19,7 @@ type (
 
 const (
 	channelBlobPull = "owl/blobpull-v0"
-	channelFeeds    = "owl/feeds-v0"
+	channelDAG      = "owl/dag-v0"
 )
 
 type Node struct {
@@ -27,7 +27,7 @@ type Node struct {
 	mux   p2pmux.SecureAskMux[PeerID, string]
 
 	blobPullSwarm p2p.SecureAskSwarm[PeerID]
-	feedsSwarm    p2p.SecureAskSwarm[PeerID]
+	dagSwarm      p2p.SecureAskSwarm[PeerID]
 }
 
 func New(swarm Swarm) *Node {
@@ -36,7 +36,7 @@ func New(swarm Swarm) *Node {
 		swarm:         swarm,
 		mux:           mux,
 		blobPullSwarm: mux.Open(channelBlobPull),
-		feedsSwarm:    mux.Open(channelFeeds),
+		dagSwarm:      mux.Open(channelDAG),
 	}
 }
 
@@ -49,11 +49,11 @@ func (n *Node) BlobPullClient() BlobPullClient {
 }
 
 func (n *Node) DAGServer(ctx context.Context, srv *DAGServer) error {
-	return ServeAsks(ctx, n.feedsSwarm, srv)
+	return ServeAsks(ctx, n.dagSwarm, srv)
 }
 
 func (n *Node) DAGClient() DAGClient {
-	return DAGClient{n.feedsSwarm}
+	return DAGClient{n.dagSwarm}
 }
 
 func (n *Node) Close() error {
@@ -82,22 +82,20 @@ func askJSON(ctx context.Context, asker p2p.Asker[inet256.ID], dst inet256.ID, r
 	return json.Unmarshal(respData[:n], res)
 }
 
-func serveJSON[In, Out any](ctx context.Context, asker p2p.Asker[inet256.ID], fn func(In) (*Out, error)) error {
-	return asker.ServeAsk(ctx, func(ctx context.Context, resp []byte, req p2p.Message[inet256.Addr]) int {
-		var in In
-		if err := json.Unmarshal(req.Payload, &in); err != nil {
-			return -1
-		}
-		out, err := fn(in)
-		if err != nil {
-			return -1
-		}
-		data, err := json.Marshal(out)
-		if err != nil {
-			return -1
-		}
-		return copy(resp, data)
-	})
+func serveJSON[In, Out any](ctx context.Context, resp []byte, req p2p.Message[inet256.ID], fn func(In) (*Out, error)) int {
+	var in In
+	if err := json.Unmarshal(req.Payload, &in); err != nil {
+		return -1
+	}
+	out, err := fn(in)
+	if err != nil {
+		return -1
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		return -1
+	}
+	return copy(resp, data)
 }
 
 type WireError struct {

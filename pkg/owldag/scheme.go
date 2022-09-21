@@ -20,4 +20,7 @@ type Scheme[T any] interface {
 	// Sync ensures that all of the data reachable by x is in dst, using src
 	// to get missing data.
 	Sync(ctx context.Context, src cadata.Getter, dst cadata.Store, x T) error
+
+	CanRead(ctx context.Context, s cadata.Getter, x T, id PeerID) (bool, error)
+	ListPeers(ctx context.Context, s cadata.Getter, x T) ([]PeerID, error)
 }

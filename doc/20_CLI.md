@@ -8,7 +8,7 @@ This section describes the commands provided by Owl.
 
 ## Server
 
-### `owl serve-jrpc <laddr>`
+### `owl serve <laddr>`
 
 ## Personas
 

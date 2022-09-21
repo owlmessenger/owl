@@ -64,6 +64,14 @@ func (s testScheme) Sync(ctx context.Context, src cadata.Getter, dst cadata.Stor
 	panic("not implemented") // TODO: Implement
 }
 
+func (s testScheme) CanRead(ctx context.Context, src cadata.Getter, x uint64, id PeerID) (bool, error) {
+	panic("not implemented") // TODO: Implement
+}
+
+func (s testScheme) ListPeers(ctx context.Context, src cadata.Getter, x uint64) ([]PeerID, error) {
+	panic("not implemented") // TODO: Implement
+}
+
 func newTestDAG(t testing.TB) *DAG[uint64] {
 	store := newStore(t)
 	sch := testScheme{}

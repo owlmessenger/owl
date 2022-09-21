@@ -236,6 +236,10 @@ func (d *DAG[T]) pullHeadTree(ctx context.Context, src cadata.Getter, x gotkv.Ro
 	return d.gotkv.Sync(ctx, src, d.dagStore, x, func(gotkv.Entry) error { return nil })
 }
 
+func (d *DAG[T]) ListPeers(ctx context.Context) ([]PeerID, error) {
+	return d.scheme.ListPeers(ctx, d.innerStore, d.View())
+}
+
 func max[T constraints.Ordered](a, b T) T {
 	if a > b {
 		return a

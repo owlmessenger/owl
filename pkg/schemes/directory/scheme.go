@@ -46,10 +46,10 @@ func (p *Scheme) Sync(ctx context.Context, src cadata.Getter, dst cadata.Store, 
 	return p.op.gotkv.Sync(ctx, src, dst, x, func(gotkv.Entry) error { return nil })
 }
 
-func (p *Scheme) CanRead(ctx context.Context, x State, peer owldag.PeerID) (bool, error) {
+func (p *Scheme) CanRead(ctx context.Context, s cadata.Getter, x State, peer owldag.PeerID) (bool, error) {
 	return slices.Contains(p.peers, peer), nil
 }
 
-func (p *Scheme) ListPeers(ctx context.Context, x State) ([]owldag.PeerID, error) {
+func (p *Scheme) ListPeers(ctx context.Context, s cadata.Getter, x State) ([]owldag.PeerID, error) {
 	return p.peers, nil
 }

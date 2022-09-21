@@ -92,6 +92,14 @@ func (s *Server) Sync(ctx context.Context, req *SyncReq) error {
 	return eg.Wait()
 }
 
+func (s *Server) Wait(ctx context.Context, req *WaitReq) (*WaitRes, error) {
+	if err := s.Init(ctx); err != nil {
+		return nil, err
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 func (s *Server) reloadPersona(ctx context.Context, name string) error {
 	id, err := s.lookupPersona(s.db, name)
 	if err != nil {

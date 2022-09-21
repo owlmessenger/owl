@@ -38,14 +38,14 @@ func (p *Scheme) Sync(ctx context.Context, src cadata.Getter, dst cadata.Store, 
 	return p.op.Sync(ctx, src, dst, x)
 }
 
-func (p *Scheme) CanRead(ctx context.Context, x State, peer owldag.PeerID) (bool, error) {
-	peers, err := p.ListPeers(ctx, x)
+func (p *Scheme) CanRead(ctx context.Context, s cadata.Getter, x State, peer owldag.PeerID) (bool, error) {
+	peers, err := p.ListPeers(ctx, s, x)
 	if err != nil {
 		return false, err
 	}
 	return slices.Contains(peers, peer), nil
 }
 
-func (p *Scheme) ListPeers(ctx context.Context, x State) ([]owldag.PeerID, error) {
+func (p *Scheme) ListPeers(ctx context.Context, s cadata.Getter, x State) ([]owldag.PeerID, error) {
 	return p.getPeers(ctx)
 }

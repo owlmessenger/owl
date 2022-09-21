@@ -14,7 +14,6 @@ var _ owldag.Scheme[State] = &Scheme{}
 
 type Scheme struct {
 	op    Operator
-	store cadata.Store
 	peers []PeerID
 }
 
@@ -46,10 +45,10 @@ func (p *Scheme) Sync(ctx context.Context, src cadata.Getter, dst cadata.Store, 
 	return p.op.gotkv.Sync(ctx, src, dst, x, func(gotkv.Entry) error { return nil })
 }
 
-func (p *Scheme) CanRead(ctx context.Context, s cadata.Store, x State, peer owldag.PeerID) (bool, error) {
+func (p *Scheme) CanRead(ctx context.Context, s cadata.Getter, x State, peer owldag.PeerID) (bool, error) {
 	return slices.Contains(p.peers, peer), nil
 }
 
-func (p *Scheme) ListPeers(ctx context.Context, x State) ([]PeerID, error) {
+func (p *Scheme) ListPeers(ctx context.Context, s cadata.Getter, x State) ([]PeerID, error) {
 	return p.peers, nil
 }
