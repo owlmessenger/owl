@@ -32,6 +32,8 @@ type PushHeadsReq struct {
 	Blobs []byte        `json:"blobs"`
 }
 
+type ListDAGsReq struct{}
+
 type DAGClient struct {
 	swarm p2p.SecureAskSwarm[PeerID]
 }
@@ -76,8 +78,8 @@ func (fc DAGClient) ask(ctx context.Context, dst PeerID, req DAGReq) (*DAGRes, e
 }
 
 type DAGServer struct {
-	OnPush func(from PeerID, dagID [32]byte, heads []owldag.Ref) error
-	OnGet  func(from PeerID, dagID [32]byte) ([]owldag.Ref, error)
+	OnPush func(from PeerID, dagID [32]byte, heads []owldag.Head) error
+	OnGet  func(from PeerID, dagID [32]byte) ([]owldag.Head, error)
 }
 
 func (s DAGServer) HandleAsk(ctx context.Context, resp []byte, msg p2p.Message[PeerID]) int {

@@ -4,21 +4,23 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/owlmessenger/owl/pkg/owldag"
 	"github.com/owlmessenger/owl/pkg/owlnet"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc/codes"
 )
 
 type replicatorParams[T any] struct {
 	Context context.Context
 	Scheme  owldag.Scheme[T]
-	GetNode func(ctx context.Context) (*owlnet.Node, error)
 
-	Resolve func(context.Context, owldag.Ref) (int, error)
-
-	View   func(context.Context, int) (*owldag.DAG[T], error)
-	Modify func(context.Context, int, func(dag *owldag.DAG[T]) error) error
+	View     func(context.Context, int) (*owldag.DAG[T], error)
+	Modify   func(context.Context, int, func(dag *owldag.DAG[T]) error) error
+	Push     func(ctx context.Context, dst PeerID, epoch owldag.Ref, heads []owldag.Head) error
+	GetHeads func(ctx context.Context, dst PeerID, epoch owldag.Ref) ([]owldag.Head, error)
+	GetStore func(dst PeerID) (cadata.Getter, error)
 }
 
 type replicator[T any] struct {
@@ -45,10 +47,11 @@ func (r *replicator[T]) Close() error {
 }
 
 // Notify tells the replicator that a dag has changed so it will begin replicating it.
-func (r *replicator[T]) Notify(fid int) {
+func (r *replicator[T]) Notify(vid int) {
+	logctx.Infof(r.ctx, "volume %d has changed. syncing...", vid)
 	// TODO: use a queue
 	go func() {
-		if err := r.Sync(r.ctx, fid); err != nil {
+		if err := r.Sync(r.ctx, vid); err != nil {
 			logctx.Errorf(r.ctx, "replicator.Push", err)
 		}
 	}()
@@ -80,22 +83,17 @@ func (r *replicator[T]) Push(ctx context.Context, fid int) error {
 	if err != nil {
 		return err
 	}
-	node, err := r.params.GetNode(ctx)
-	if err != nil {
-		return err
-	}
 	epoch, err := dag.GetEpoch(ctx)
 	if err != nil {
 		return err
 	}
 	heads := dag.GetHeads()
-	dagClient := node.DAGClient()
 	eg := errgroup.Group{}
 	errs := make([]error, len(peers))
 	for i, dst := range peers {
 		i, dst := i, dst
 		eg.Go(func() error {
-			errs[i] = dagClient.PushHeads(ctx, dst, *epoch, heads)
+			errs[i] = r.params.Push(ctx, dst, *epoch, heads)
 			return nil
 		})
 	}
@@ -117,43 +115,32 @@ func (r *replicator[T]) Pull(ctx context.Context, id int) error {
 	if err != nil {
 		return err
 	}
-	node, err := r.params.GetNode(ctx)
-	if err != nil {
-		return err
-	}
 	epoch, err := dag.GetEpoch(ctx)
 	if err != nil {
 		return err
 	}
-	dagClient := node.DAGClient()
 	eg := errgroup.Group{}
 	errs := make([]error, len(peers))
 	for i, dst := range peers {
 		i, dst := i, dst
 		eg.Go(func() error {
-			heads, err := dagClient.GetHeads(ctx, dst, *epoch)
+			heads, err := r.params.GetHeads(ctx, dst, *epoch)
 			if err != nil {
 				errs[i] = err
 				return nil
 			}
 			logctx.Infof(ctx, "heads: %v", heads)
-			// TODO: sync heads
 			return nil
 		})
 	}
 	return eg.Wait()
 }
 
-func (r *replicator[T]) HandlePush(ctx context.Context, src PeerID, epoch owldag.Ref, heads []owldag.Head) error {
-	node, err := r.params.GetNode(ctx)
+func (r *replicator[T]) HandlePush(ctx context.Context, src PeerID, volID int, heads []owldag.Head) error {
+	peerStore, err := r.params.GetStore(src)
 	if err != nil {
 		return err
 	}
-	volID, err := r.params.Resolve(ctx, epoch)
-	if err != nil {
-		return err
-	}
-	peerStore := owlnet.NewStore(node.BlobPullClient(), src)
 	for _, h := range heads {
 		if err := r.params.Modify(ctx, volID, func(dag *owldag.DAG[T]) error {
 			return dag.Pull(ctx, peerStore, h)
@@ -162,6 +149,19 @@ func (r *replicator[T]) HandlePush(ctx context.Context, src PeerID, epoch owldag
 		}
 	}
 	return nil
+}
+
+func (r *replicator[T]) HandleGet(ctx context.Context, src PeerID, volID int) ([]owldag.Head, error) {
+	dag, err := r.params.View(ctx, volID)
+	if err != nil {
+		return nil, err
+	}
+	if yes, err := dag.CanRead(ctx, src); err != nil {
+		return nil, err
+	} else if !yes {
+		return nil, owlnet.NewError(codes.PermissionDenied, "no read access")
+	}
+	return dag.GetHeads(), nil
 }
 
 func countNils(errs []error) (ret int) {

@@ -106,3 +106,7 @@ type WireError struct {
 func (we WireError) Error() string {
 	return fmt.Sprintf("{code: %v, msg: %v}", we.Code, we.Msg)
 }
+
+func NewError(c codes.Code, msg string) *WireError {
+	return &WireError{Code: c, Msg: msg}
+}
