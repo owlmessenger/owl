@@ -3,15 +3,19 @@ package owlcmd
 import (
 	"context"
 	"errors"
+	"os"
 
-	"github.com/brendoncarroll/go-p2p/p2ptest"
-	"github.com/inet256/inet256/networks/beaconnet"
-	"github.com/inet256/inet256/pkg/mesh256"
-	"github.com/owlmessenger/owl/pkg/owl"
+	"github.com/brendoncarroll/stdctx/logctx"
+	"github.com/inet256/diet256"
+	"github.com/inet256/inet256/client/go_client/inet256client"
+	"github.com/inet256/inet256/pkg/inet256"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+
+	"github.com/owlmessenger/owl/pkg/owl"
 )
 
-var ctx = context.Background()
+var ctx = logctx.WithFmtLogger(context.Background(), logrus.StandardLogger())
 
 func NewRootCmd() *cobra.Command {
 	var s owl.API
@@ -28,11 +32,16 @@ func NewRootCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		nwk := mesh256.NewServer(mesh256.Params{
-			NewNetwork: beaconnet.Factory,
-			PrivateKey: p2ptest.NewTestKey(nil, 0),
-			Peers:      mesh256.NewPeerStore(),
-		})
+		var nwk inet256.Service
+		if os.Getenv("INET256_API") == "" {
+			logctx.Infof(ctx, "INET256_API not set, falling back to in-process diet256")
+			nwk = diet256.New()
+		} else {
+			nwk, err = inet256client.NewEnvClient()
+			if err != nil {
+				return err
+			}
+		}
 		s = owl.NewServer(db, nwk)
 		return nil
 	}

@@ -13,12 +13,12 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.12
 	github.com/sirupsen/logrus v1.8.1
 	github.com/sourcegraph/jsonrpc2 v0.1.0
-	github.com/spf13/cobra v0.0.5
+	github.com/spf13/cobra v1.2.1
 	github.com/stretchr/testify v1.7.1
 	golang.org/x/crypto v0.0.0-20220321153916-2c7772ba3064
 	golang.org/x/exp v0.0.0-20220722155223-a9213eeb770e
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
-	google.golang.org/grpc v1.33.2
+	google.golang.org/grpc v1.38.0
 	google.golang.org/protobuf v1.27.1
 )
 
@@ -27,7 +27,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dchest/siphash v1.2.3 // indirect
-	github.com/fsnotify/fsnotify v1.4.9 // indirect
+	github.com/fsnotify/fsnotify v1.5.1 // indirect
 	github.com/go-chi/chi v4.0.3+incompatible // indirect
 	github.com/go-task/slim-sprig v0.0.0-20210107165309-348f09dbbbc0 // indirect
 	github.com/golang/mock v1.6.0 // indirect
@@ -35,6 +35,7 @@ require (
 	github.com/google/btree v1.1.2 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
+	github.com/inet256/diet256 v0.0.3-0.20220921235605-814a3d2912d9 // indirect
 	github.com/jonboulle/clockwork v0.1.1-0.20190114141812-62fb9bc030d1 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/lucas-clemente/quic-go v0.29.0 // indirect
@@ -56,8 +57,8 @@ require (
 	golang.org/x/text v0.3.7 // indirect
 	golang.org/x/tools v0.1.10 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
-	google.golang.org/genproto v0.0.0-20200526211855-cb27e3aa2013 // indirect
+	google.golang.org/genproto v0.0.0-20210602131652-f16073e35f0c // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
-	gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c // indirect
+	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 	lukechampine.com/blake3 v1.1.7 // indirect
 )
