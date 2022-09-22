@@ -35,8 +35,8 @@ func (c *Client) CreatePersona(ctx context.Context, req *owl.CreatePersonaReq) e
 	return c.c.Call(ctx, currentMethodName(), req, &res)
 }
 
-// JoinPersona joins a persona, which has already been created on another peer.
-func (c *Client) JoinPersona(ctx context.Context, req *owl.JoinPersonaReq) error {
+// DropPersona implements owl.DropPersona
+func (c *Client) DropPersona(ctx context.Context, req string) error {
 	res := &struct{}{}
 	return c.c.Call(ctx, currentMethodName(), req, &res)
 }

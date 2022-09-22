@@ -2,6 +2,7 @@ package owl
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/brendoncarroll/go-state/cadata"
@@ -12,27 +13,24 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-type replicatorParams[T any] struct {
+type replicatorParams struct {
 	Context context.Context
-	Scheme  owldag.Scheme[T]
 
-	View     func(context.Context, int) (*owldag.DAG[T], error)
-	Modify   func(context.Context, int, func(dag *owldag.DAG[T]) error) error
-	Push     func(ctx context.Context, dst PeerID, epoch owldag.Ref, heads []owldag.Head) error
-	GetHeads func(ctx context.Context, dst PeerID, epoch owldag.Ref) ([]owldag.Head, error)
-	GetStore func(dst PeerID) (cadata.Getter, error)
+	View    func(context.Context, int) (string, *owldag.DAG[json.RawMessage], error)
+	Modify  func(context.Context, int, func(dag *owldag.DAG[json.RawMessage]) error) error
+	GetNode func(ctx context.Context) (*owlnet.Node, error)
 }
 
-type replicator[T any] struct {
-	params replicatorParams[T]
+type replicator struct {
+	params replicatorParams
 
 	ctx context.Context
 	cf  context.CancelFunc
 }
 
-func newReplicator[T any](params replicatorParams[T]) *replicator[T] {
+func newReplicator(params replicatorParams) *replicator {
 	ctx, cf := context.WithCancel(params.Context)
-	r := &replicator[T]{
+	r := &replicator{
 		params: params,
 
 		ctx: ctx,
@@ -41,13 +39,13 @@ func newReplicator[T any](params replicatorParams[T]) *replicator[T] {
 	return r
 }
 
-func (r *replicator[T]) Close() error {
+func (r *replicator) Close() error {
 	r.cf()
 	return nil
 }
 
 // Notify tells the replicator that a dag has changed so it will begin replicating it.
-func (r *replicator[T]) Notify(vid int) {
+func (r *replicator) Notify(vid int) {
 	logctx.Infof(r.ctx, "volume %d has changed. syncing...", vid)
 	// TODO: use a queue
 	go func() {
@@ -58,13 +56,13 @@ func (r *replicator[T]) Notify(vid int) {
 }
 
 // Wait blocks on the DAG in vid, until cond(dag_state) == false
-func (r *replicator[T]) Wait(ctx context.Context, vid int, cond func(T) bool) error {
+func (r *replicator) Wait(ctx context.Context, vid int, cond func(json.RawMessage) bool) error {
 	// TODO:
 	return nil
 }
 
 // Sync blocks until a pull and push have been performed sucessfully.
-func (r *replicator[T]) Sync(ctx context.Context, fid int) error {
+func (r *replicator) Sync(ctx context.Context, fid int) error {
 	if err := r.Push(ctx, fid); err != nil {
 		return err
 	}
@@ -74,12 +72,8 @@ func (r *replicator[T]) Sync(ctx context.Context, fid int) error {
 	return nil
 }
 
-func (r *replicator[T]) Push(ctx context.Context, fid int) error {
-	dag, err := r.params.View(ctx, fid)
-	if err != nil {
-		return err
-	}
-	peers, err := dag.ListPeers(ctx)
+func (r *replicator) Push(ctx context.Context, vid int) error {
+	scheme, dag, err := r.params.View(ctx, vid)
 	if err != nil {
 		return err
 	}
@@ -87,13 +81,27 @@ func (r *replicator[T]) Push(ctx context.Context, fid int) error {
 	if err != nil {
 		return err
 	}
+	peers, err := dag.ListPeers(ctx)
+	if err != nil {
+		return err
+	}
 	heads := dag.GetHeads()
+	node, err := r.params.GetNode(ctx)
+	if err != nil {
+		return err
+	}
+	dagClient := node.DAGClient()
 	eg := errgroup.Group{}
 	errs := make([]error, len(peers))
 	for i, dst := range peers {
 		i, dst := i, dst
 		eg.Go(func() error {
-			errs[i] = r.params.Push(ctx, dst, *epoch, heads)
+			info, err := dagClient.Get(ctx, dst, scheme, []owldag.Ref{*epoch})
+			if err != nil {
+				logctx.Errorf(ctx, "while looking up DAG on %v: %v", dst, err)
+				return nil
+			}
+			errs[i] = dagClient.PushHeads(ctx, dst, uint32(vid), info.Handle, heads)
 			return nil
 		})
 	}
@@ -106,8 +114,8 @@ func (r *replicator[T]) Push(ctx context.Context, fid int) error {
 	return nil
 }
 
-func (r *replicator[T]) Pull(ctx context.Context, id int) error {
-	dag, err := r.params.View(ctx, id)
+func (r *replicator) Pull(ctx context.Context, id int) error {
+	scheme, dag, err := r.params.View(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -119,12 +127,21 @@ func (r *replicator[T]) Pull(ctx context.Context, id int) error {
 	if err != nil {
 		return err
 	}
+	node, err := r.params.GetNode(ctx)
+	if err != nil {
+		return err
+	}
+	dagClient := node.DAGClient()
 	eg := errgroup.Group{}
 	errs := make([]error, len(peers))
 	for i, dst := range peers {
 		i, dst := i, dst
 		eg.Go(func() error {
-			heads, err := r.params.GetHeads(ctx, dst, *epoch)
+			info, err := dagClient.Get(ctx, dst, scheme, []owldag.Ref{*epoch})
+			if err != nil {
+				return err
+			}
+			heads, err := dagClient.GetHeads(ctx, dst, info.Handle)
 			if err != nil {
 				errs[i] = err
 				return nil
@@ -136,13 +153,14 @@ func (r *replicator[T]) Pull(ctx context.Context, id int) error {
 	return eg.Wait()
 }
 
-func (r *replicator[T]) HandlePush(ctx context.Context, src PeerID, volID int, heads []owldag.Head) error {
-	peerStore, err := r.params.GetStore(src)
+func (r *replicator) HandlePush(ctx context.Context, src PeerID, srcDAG owlnet.Handle, volID int, heads []owldag.Head) error {
+	node, err := r.params.GetNode(ctx)
 	if err != nil {
 		return err
 	}
+	peerStore := owlnet.NewStore(node.BlobPullClient(), src, srcDAG)
 	for _, h := range heads {
-		if err := r.params.Modify(ctx, volID, func(dag *owldag.DAG[T]) error {
+		if err := r.params.Modify(ctx, volID, func(dag *owldag.DAG[json.RawMessage]) error {
 			return dag.Pull(ctx, peerStore, h)
 		}); err != nil {
 			return err
@@ -151,8 +169,8 @@ func (r *replicator[T]) HandlePush(ctx context.Context, src PeerID, volID int, h
 	return nil
 }
 
-func (r *replicator[T]) HandleGet(ctx context.Context, src PeerID, volID int) ([]owldag.Head, error) {
-	dag, err := r.params.View(ctx, volID)
+func (r *replicator) HandleGet(ctx context.Context, src PeerID, volID int) ([]owldag.Head, error) {
+	_, dag, err := r.params.View(ctx, volID)
 	if err != nil {
 		return nil, err
 	}
@@ -171,4 +189,76 @@ func countNils(errs []error) (ret int) {
 		}
 	}
 	return ret
+}
+
+var _ owldag.Scheme[json.RawMessage] = &Scheme[int]{}
+
+type Scheme[T any] struct {
+	inner owldag.Scheme[T]
+}
+
+func wrapScheme[T any](inner owldag.Scheme[T]) owldag.Scheme[json.RawMessage] {
+	return Scheme[T]{inner}
+}
+
+func (sch Scheme[T]) Validate(ctx context.Context, s cadata.Getter, consult owldag.ConsultFunc, data json.RawMessage) error {
+	var x T
+	if err := json.Unmarshal(data, &x); err != nil {
+		return err
+	}
+	return sch.inner.Validate(ctx, s, consult, x)
+}
+
+func (sch Scheme[T]) ValidateStep(ctx context.Context, s cadata.Getter, consult owldag.ConsultFunc, d1, d2 json.RawMessage) error {
+	var prev, next T
+	if err := json.Unmarshal(d1, &prev); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(d2, &next); err != nil {
+		return err
+	}
+	return sch.inner.ValidateStep(ctx, s, consult, prev, next)
+}
+
+func (sch Scheme[T]) Merge(ctx context.Context, s cadata.Store, datas []json.RawMessage) (*json.RawMessage, error) {
+	xs := make([]T, len(datas))
+	for i := range xs {
+		var err error
+		if err = json.Unmarshal(datas[i], &xs[i]); err != nil {
+			return nil, err
+		}
+	}
+	y, err := sch.inner.Merge(ctx, s, xs)
+	if err != nil {
+		return nil, err
+	}
+	data, err := json.Marshal(y)
+	if err != nil {
+		return nil, err
+	}
+	return (*json.RawMessage)(&data), nil
+}
+
+func (sch Scheme[T]) CanRead(ctx context.Context, s cadata.Getter, data json.RawMessage, peer PeerID) (bool, error) {
+	var x T
+	if err := json.Unmarshal(data, &x); err != nil {
+		return false, err
+	}
+	return sch.inner.CanRead(ctx, s, x, peer)
+}
+
+func (sch Scheme[T]) ListPeers(ctx context.Context, s cadata.Getter, data json.RawMessage) ([]PeerID, error) {
+	var x T
+	if err := json.Unmarshal(data, &x); err != nil {
+		return nil, err
+	}
+	return sch.inner.ListPeers(ctx, s, x)
+}
+
+func (sch Scheme[T]) Sync(ctx context.Context, src cadata.Getter, dst cadata.Store, data json.RawMessage) error {
+	var x T
+	if err := json.Unmarshal(data, &x); err != nil {
+		return err
+	}
+	return sch.inner.Sync(ctx, src, dst, x)
 }

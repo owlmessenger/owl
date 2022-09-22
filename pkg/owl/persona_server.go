@@ -4,8 +4,8 @@ import (
 	"context"
 	"crypto"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
-	"io"
 	"sync"
 
 	"github.com/brendoncarroll/go-p2p/p/mbapp"
@@ -23,7 +23,6 @@ import (
 	"github.com/owlmessenger/owl/pkg/schemes/contactset"
 	"github.com/owlmessenger/owl/pkg/schemes/directmsg"
 	"github.com/owlmessenger/owl/pkg/schemes/directory"
-	"github.com/owlmessenger/owl/pkg/stores"
 )
 
 // personaServer is a server managing a single persona
@@ -33,9 +32,7 @@ type personaServer struct {
 	id      int
 	members []PeerID
 
-	contactRep   *replicator[contactset.State]
-	directoryRep *replicator[directory.State]
-	dmRep        *replicator[directmsg.State]
+	rep *replicator
 
 	mu    sync.Mutex
 	nodes map[PeerID]*owlnet.Node
@@ -55,45 +52,50 @@ func newPersonaServer(db *sqlx.DB, inetsrv inet256.Service, personaID int, membe
 		nodes: make(map[inet256.Addr]*owlnet.Node),
 		cf:    cf,
 	}
-	ps.contactRep = newReplicator(replicatorParams[contactset.State]{
+	ps.rep = newReplicator(replicatorParams{
 		Context: ctx,
-		Scheme:  ps.newContactSetScheme(),
-		View: func(ctx context.Context, vid int) (*owldag.DAG[contactset.State], error) {
-			return viewDAG(ctx, ps.db, ps.newContactSetScheme(), vid)
+		View: func(ctx context.Context, vid int) (string, *owldag.DAG[json.RawMessage], error) {
+			var row struct {
+				Data   []byte `db:"cell"`
+				S0     int    `db:"store_0"`
+				STop   int    `db:"store_top"`
+				Scheme string `db:"scheme"`
+			}
+			if err := ps.db.GetContext(ctx, &row, `SELECT cell, store_0, store_top, scheme FROM volumes WHERE id = ?`, vid); err != nil {
+				return "", nil, err
+			}
+			state, err := owldag.ParseState[json.RawMessage](row.Data)
+			if err != nil {
+				return "", nil, err
+			}
+			scheme := ps.newScheme(row.Scheme)
+			return "", owldag.New(scheme, newStore(ps.db, row.STop), newStore(ps.db, row.S0), *state), nil
 		},
-		Modify: func(ctx context.Context, vid int, fn func(*owldag.DAG[contactset.State]) error) error {
-			return modifyDAG(ctx, ps.db, vid, ps.newContactSetScheme(), fn)
+		Modify: func(ctx context.Context, vid int, fn func(dag *owldag.DAG[json.RawMessage]) error) error {
+			var row struct {
+				Data   []byte `db:"cell"`
+				S0     int    `db:"store_0"`
+				STop   int    `db:"store_top"`
+				Scheme string `db:"scheme"`
+			}
+			if err := ps.db.GetContext(ctx, &row, `SELECT cell, store_0, store_top, scheme FROM volumes WHERE id = ?`, vid); err != nil {
+				return err
+			}
+			state, err := owldag.ParseState[json.RawMessage](row.Data)
+			if err != nil {
+				return err
+			}
+			scheme := ps.newScheme(row.Scheme)
+			dag := owldag.New(scheme, newStore(ps.db, row.STop), newStore(ps.db, row.S0), *state)
+			if err := fn(dag); err != nil {
+				return err
+			}
+			_, err = ps.db.ExecContext(ctx, `UPDATE volumes SET cell = ? WHERE id = ?`, dag.SaveBytes(), vid)
+			return err
 		},
-		Push:     ps.pushHeads,
-		GetHeads: ps.getHeads,
-		GetStore: ps.newPeerStore,
+		GetNode: ps.getNode,
 	})
-	ps.directoryRep = newReplicator(replicatorParams[directory.State]{
-		Context: ctx,
-		Scheme:  ps.newDirectoryScheme(),
-		View: func(ctx context.Context, vid int) (*owldag.DAG[directory.State], error) {
-			return viewDAG(ctx, ps.db, ps.newContactSetScheme(), vid)
-		},
-		Modify: func(ctx context.Context, vid int, fn func(*owldag.DAG[directory.State]) error) error {
-			return modifyDAG(ctx, ps.db, vid, ps.newContactSetScheme(), fn)
-		},
-		Push:     ps.pushHeads,
-		GetHeads: ps.getHeads,
-		GetStore: ps.newPeerStore,
-	})
-	ps.dmRep = newReplicator(replicatorParams[directmsg.State]{
-		Context: ctx,
-		Scheme:  ps.newDirectMsgScheme(),
-		View: func(ctx context.Context, vid int) (*owldag.DAG[directmsg.State], error) {
-			return viewDAG(ctx, ps.db, ps.newContactSetScheme(), vid)
-		},
-		Modify: func(ctx context.Context, vid int, fn func(*owldag.DAG[directmsg.State]) error) error {
-			return modifyDAG(ctx, ps.db, vid, ps.newContactSetScheme(), fn)
-		},
-		Push:     ps.pushHeads,
-		GetHeads: ps.getHeads,
-		GetStore: ps.newPeerStore,
-	})
+
 	ps.eg.Go(func() error { return ps.run(ctx) })
 	return ps
 }
@@ -110,13 +112,7 @@ func (ps *personaServer) run(ctx context.Context) error {
 
 func (ps *personaServer) Close() error {
 	ps.cf()
-	for _, closer := range []io.Closer{
-		ps.contactRep,
-		ps.directoryRep,
-		ps.dmRep,
-	} {
-		closer.Close()
-	}
+	ps.rep.Close()
 	return ps.eg.Wait()
 }
 
@@ -124,40 +120,43 @@ func (ps *personaServer) readLoop(ctx context.Context, n *owlnet.Node) error {
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.Go(func() error {
 		return n.BlobPullServer(ctx, &owlnet.BlobPullServer{
-			Open: func(from PeerID, epoch owldag.Ref) cadata.Getter {
-				volID, _, err := findVolume(ps.db, ps.id, epoch)
-				if err != nil {
-					logctx.Errorf(ctx, "no volumes for %v", epoch)
-					return nil
-				}
-				s0, sTop, err := lookupVolumeStores(ps.db, volID)
+			Open: func(from PeerID, volID uint32, sid uint8) cadata.Getter {
+				s0, sTop, err := lookupVolumeStores(ps.db, int(volID))
 				if err != nil {
 					logctx.Errorf(ctx, "no stores for %v", volID)
 					return nil
 				}
-				return stores.Union{newStore(ps.db, s0), newStore(ps.db, sTop)}
+				switch sid {
+				case 0:
+					return newStore(ps.db, s0)
+				case 255:
+					return newStore(ps.db, sTop)
+				default:
+					logctx.Errorf(ctx, "volume has no store %v", sid)
+					return nil
+				}
 			},
 		})
 	})
 	eg.Go(func() error {
-		return n.DAGServer(ctx, &owlnet.DAGServer{
-			OnPush: func(from owlnet.PeerID, epoch [32]byte, heads []owldag.Head) error {
-				volID, scheme, err := findVolume(ps.db, ps.id, epoch)
-				if err != nil {
-					return err
-				}
-				return ps.getReplicator(scheme).HandlePush(ctx, from, volID, heads)
-			},
-			OnGet: func(from owlnet.PeerID, epoch [32]byte) ([]owldag.Head, error) {
-				volID, scheme, err := findVolume(ps.db, ps.id, epoch)
-				if err != nil {
-					return nil, err
-				}
-				return ps.getReplicator(scheme).HandleGet(ctx, from, volID)
-			},
-		})
+		return n.DAGServer(ctx, &owlnet.DAGServer{})
 	})
 	return eg.Wait()
+}
+
+func (ps *personaServer) newScheme(name string) owldag.Scheme[json.RawMessage] {
+	switch name {
+	case contactSetScheme:
+		return wrapScheme[contactset.State](contactset.NewScheme(ps.members))
+	case directoryScheme:
+		return wrapScheme[contactset.State](contactset.NewScheme(ps.members))
+	case DirectMessageV0:
+		return wrapScheme[directmsg.State](directmsg.NewScheme(func(ctx context.Context) ([]owldag.PeerID, error) {
+			return nil, nil
+		}))
+	default:
+		panic(name)
+	}
 }
 
 func (ps *personaServer) syncContacts(ctx context.Context) error {
@@ -165,7 +164,7 @@ func (ps *personaServer) syncContacts(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return ps.contactRep.Sync(ctx, fid)
+	return ps.rep.Sync(ctx, fid)
 }
 
 func (ps *personaServer) syncDirectory(ctx context.Context) error {
@@ -173,7 +172,7 @@ func (ps *personaServer) syncDirectory(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return ps.directoryRep.Sync(ctx, fid)
+	return ps.rep.Sync(ctx, fid)
 }
 
 func (ps *personaServer) syncChannel(ctx context.Context, name string) error {
@@ -200,13 +199,13 @@ func (ps *personaServer) modifyContactSet(ctx context.Context, fn func(op *conta
 	op := contactset.New()
 	type T = contactset.State
 	if err := dbutil.DoTx(ctx, ps.db, func(tx *sqlx.Tx) error {
-		return modifyDAGInner(tx, volID, privKey, ps.newContactSetScheme(), func(s cadata.Store, x T) (*T, error) {
+		return modifyDAGInner(tx, volID, privKey, func(s cadata.Store, x T) (*T, error) {
 			return fn(&op, s, x)
 		})
 	}); err != nil {
 		return err
 	}
-	ps.contactRep.Notify(volID)
+	ps.rep.Notify(volID)
 	return nil
 }
 
@@ -215,7 +214,7 @@ func (ps *personaServer) viewContactSet(ctx context.Context) (*contactset.State,
 	if err != nil {
 		return nil, nil, err
 	}
-	return viewFeedInner[contactset.State](ctx, ps.db, volID)
+	return viewDAGInner[contactset.State](ctx, ps.db, volID)
 }
 
 func (ps *personaServer) modifyDirectory(ctx context.Context, fn func(cadata.Store, directory.State) (*directory.State, error)) error {
@@ -233,13 +232,13 @@ func (ps *personaServer) modifyDirectory(ctx context.Context, fn func(cadata.Sto
 	}
 	type T = directory.State
 	if err := dbutil.DoTx(ctx, ps.db, func(tx *sqlx.Tx) error {
-		return modifyDAGInner(tx, volID, privKey, ps.newDirectoryScheme(), func(s cadata.Store, x T) (*T, error) {
+		return modifyDAGInner(tx, volID, privKey, func(s cadata.Store, x T) (*T, error) {
 			return fn(s, x)
 		})
 	}); err != nil {
 		return err
 	}
-	ps.directoryRep.Notify(volID)
+	ps.rep.Notify(volID)
 	return nil
 }
 
@@ -248,7 +247,7 @@ func (ps *personaServer) viewDirectory(ctx context.Context) (*directory.State, c
 	if err != nil {
 		return nil, nil, err
 	}
-	return viewFeedInner[directory.State](ctx, ps.db, volID)
+	return viewDAGInner[directory.State](ctx, ps.db, volID)
 }
 
 func (ps *personaServer) modifyDM(ctx context.Context, name string, fn func(cadata.Store, directmsg.State, PeerID) (*directmsg.State, error)) error {
@@ -266,13 +265,13 @@ func (ps *personaServer) modifyDM(ctx context.Context, name string, fn func(cada
 	}
 	type T = directmsg.State
 	if err := dbutil.DoTx(ctx, ps.db, func(tx *sqlx.Tx) error {
-		return modifyDAGInner(tx, volID, privKey, ps.newDirectMsgScheme(), func(s cadata.Store, x T) (*T, error) {
+		return modifyDAGInner(tx, volID, privKey, func(s cadata.Store, x T) (*T, error) {
 			return fn(s, x, peerID)
 		})
 	}); err != nil {
 		return err
 	}
-	ps.dmRep.Notify(volID)
+	ps.rep.Notify(volID)
 	return nil
 }
 
@@ -281,7 +280,7 @@ func (ps *personaServer) viewDM(ctx context.Context, name string) (*directmsg.St
 	if err != nil {
 		return nil, nil, err
 	}
-	return viewFeedInner[directmsg.State](ctx, ps.db, volID)
+	return viewDAGInner[directmsg.State](ctx, ps.db, volID)
 }
 
 func (s *personaServer) getNode(ctx context.Context) (*owlnet.Node, error) {
@@ -377,49 +376,6 @@ func (ps *personaServer) resolveChannel(ctx context.Context, name string) (*dire
 	return op.Get(ctx, store, *state, name)
 }
 
-func (ps *personaServer) newContactSetScheme() owldag.Scheme[contactset.State] {
-	return contactset.NewScheme(ps.members)
-}
-
-func (ps *personaServer) newDirectoryScheme() owldag.Scheme[directory.State] {
-	return directory.NewScheme(ps.members)
-}
-
-func (ps *personaServer) newDirectMsgScheme() owldag.Scheme[directmsg.State] {
-	return directmsg.NewScheme(func(ctx context.Context) ([]PeerID, error) {
-		return nil, nil
-	})
-}
-
-func (ps *personaServer) getReplicator(scheme string) interface {
-	Notify(int)
-	Push(context.Context, int) error
-	Pull(context.Context, int) error
-	HandlePush(context.Context, PeerID, int, []owldag.Head) error
-	HandleGet(context.Context, PeerID, int) ([]owldag.Head, error)
-} {
-	switch scheme {
-	default:
-		panic(scheme)
-	}
-}
-
-func (ps *personaServer) pushHeads(ctx context.Context, dst PeerID, epoch owldag.Ref, heads []owldag.Head) error {
-	return nil
-}
-
-func (ps *personaServer) getHeads(ctx context.Context, dst PeerID, epoch owldag.Ref) ([]owldag.Head, error) {
-	return nil, nil
-}
-
-func (ps *personaServer) newPeerStore(peer PeerID) (cadata.Getter, error) {
-	node, err := ps.getNode(context.TODO())
-	if err != nil {
-		return nil, err
-	}
-	return owlnet.NewStore(node.BlobPullClient(), peer), nil
-}
-
 func (ps *personaServer) whoIs(ctx context.Context, peerID PeerID) (string, error) {
 	x, store, err := ps.viewContactSet(ctx)
 	if err != nil {
@@ -436,83 +392,4 @@ func (ps *personaServer) lookupContactUID(ctx context.Context, name string) (*co
 	}
 	op := contactset.New()
 	return op.Lookup(ctx, store, *x, name)
-}
-
-func viewFeedInner[T any](ctx context.Context, db *sqlx.DB, volID int) (*T, cadata.Store, error) {
-	data, s0, _, err := viewVolume(ctx, db, volID)
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(data) == 0 {
-		return nil, s0, nil
-	}
-	x, err := owldag.ParseState[T](data)
-	if err != nil {
-		return nil, nil, err
-	}
-	return &x.X, s0, nil
-}
-
-// modifyFeedInner calls fn to modify the contents of the feed.
-func modifyDAGInner[T any](tx *sqlx.Tx, volID int, privKey owldag.PrivateKey, sch owldag.Scheme[T], fn func(s cadata.Store, x T) (*T, error)) error {
-	ctx := context.TODO()
-	return modifyVolumeTx(tx, volID, func(x []byte, s0, sTop cadata.Store) ([]byte, error) {
-		dagState, err := owldag.ParseState[T](x)
-		if err != nil {
-			return nil, err
-		}
-		dag := owldag.New(sch, sTop, s0, *dagState)
-		if err := dag.Modify(ctx, privKey, func(s cadata.Store, x T) (*T, error) {
-			return fn(s0, x)
-		}); err != nil {
-			return nil, err
-		}
-		return dag.SaveBytes(), nil
-	})
-}
-
-func initDAG[T any](tx *sqlx.Tx, volID int, initF func(s cadata.Store) (*T, error)) (*owldag.Ref, error) {
-	ctx := context.Background()
-	var ret *owldag.Ref
-	if err := modifyVolumeTx(tx, volID, func(x []byte, s0, sTop cadata.Store) ([]byte, error) {
-		init, err := initF(s0)
-		if err != nil {
-			return nil, err
-		}
-		state, err := owldag.InitState(ctx, sTop, init, nil)
-		if err != nil {
-			return nil, err
-		}
-		ret = &state.Epochs[0]
-		return state.Marshal(), nil
-	}); err != nil {
-		return nil, err
-	}
-	return ret, nil
-}
-
-func viewDAG[T any](ctx context.Context, db *sqlx.DB, scheme owldag.Scheme[T], volID int) (*owldag.DAG[T], error) {
-	data, sTop, s0, err := viewVolume(ctx, db, volID)
-	if err != nil {
-		return nil, err
-	}
-	state, err := owldag.ParseState[T](data)
-	if err != nil {
-		return nil, err
-	}
-	return owldag.New(scheme, sTop, s0, *state), nil
-}
-
-func modifyDAG[T any](ctx context.Context, db *sqlx.DB, volID int, scheme owldag.Scheme[T], fn func(*owldag.DAG[T]) error) error {
-	return modifyVolume(ctx, db, volID, func(x []byte, s0 cadata.Store, sTop cadata.Store) ([]byte, error) {
-		state, err := owldag.ParseState[T](x)
-		if err != nil {
-			return nil, err
-		}
-		dag := owldag.New(scheme, sTop, s0, *state)
-		if err := fn(dag); err != nil {
-			return nil, err
-		}
-		return dag.SaveBytes(), nil
-	})
 }

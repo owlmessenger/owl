@@ -96,14 +96,6 @@ func createPersona(t testing.TB, x API, name string) {
 	require.NoError(t, err)
 }
 
-func joinPersona(t testing.TB, x API, name string, peers []PeerID) {
-	err := x.JoinPersona(ctx, &owl.JoinPersonaReq{
-		Name:  name,
-		Peers: peers,
-	})
-	require.NoError(t, err)
-}
-
 func expandPersona(t testing.TB, x API, name string, peers []PeerID) {
 	err := x.ExpandPersona(ctx, &owl.ExpandPersonaReq{Name: name, Peers: peers})
 	require.NoError(t, err)

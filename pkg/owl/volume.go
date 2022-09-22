@@ -101,11 +101,12 @@ func viewVolumeTx(tx *sqlx.Tx, volID int) (data []byte, s0, sTop cadata.Store, _
 
 func viewVolume(ctx context.Context, db *sqlx.DB, volID int) (data []byte, s0 cadata.Store, sTop cadata.Store, _ error) {
 	var x struct {
-		Data []byte `db:"cell"`
-		S0   int    `db:"store_0"`
-		STop int    `db:"store_top"`
+		Data   []byte `db:"cell"`
+		S0     int    `db:"store_0"`
+		STop   int    `db:"store_top"`
+		Scheme string `db:"scheme"`
 	}
-	if err := db.GetContext(ctx, &x, `SELECT cell, store_0, store_top FROM volumes WHERE id = ?`, volID); err != nil {
+	if err := db.GetContext(ctx, &x, `SELECT cell, store_0, store_top, scheme FROM volumes WHERE id = ?`, volID); err != nil {
 		return nil, nil, nil, err
 	}
 	return x.Data, newStore(db, x.S0), newStore(db, x.STop), nil
