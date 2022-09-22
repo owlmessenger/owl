@@ -51,7 +51,6 @@ func down[E any, S ~[]E](h S, i0, n int, lt func(a, b E) bool) bool {
 		i = j
 	}
 	return i > i0
-
 }
 
 func swap[E any, S ~[]E](x S, i, j int) {

@@ -13,12 +13,12 @@ import (
 )
 
 type BlobPullReq struct {
-	Feed FeedID    `json:"feed"`
-	ID   cadata.ID `json:"id"`
+	DAG owldag.Ref `json:"dag"`
+	ID  cadata.ID  `json:"id"`
 }
 
 type BlobPullServer struct {
-	Open func(peerID PeerID, feedID FeedID) cadata.Getter
+	Open func(peerID PeerID, epoch owldag.Ref) cadata.Getter
 }
 
 func (s *BlobPullServer) HandleAsk(ctx context.Context, resp []byte, msg p2p.Message[inet256.ID]) int {
@@ -27,7 +27,7 @@ func (s *BlobPullServer) HandleAsk(ctx context.Context, resp []byte, msg p2p.Mes
 		return -1
 	}
 	id := req.ID
-	store := s.Open(msg.Src, req.Feed)
+	store := s.Open(msg.Src, req.DAG)
 	if store == nil {
 		return -1
 	}

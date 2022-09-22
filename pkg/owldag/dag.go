@@ -68,10 +68,11 @@ func (d *DAG[T]) Modify(ctx context.Context, privKey PrivateKey, fn func(s cadat
 		return err
 	}
 	d.state = State[T]{
-		Max:   d.state.Max + 1,
-		Prev:  []Head{h},
-		X:     *y,
-		Heads: *nextHeads,
+		Max:    d.state.Max + 1,
+		Prev:   []Head{h},
+		X:      *y,
+		Heads:  *nextHeads,
+		Epochs: d.state.Epochs,
 	}
 	return nil
 }
@@ -161,7 +162,8 @@ func (d *DAG[T]) AddHead(ctx context.Context, h Head) error {
 }
 
 func (d *DAG[T]) GetEpoch(ctx context.Context) (*Ref, error) {
-	return NCA(ctx, d.dagStore, d.state.PrevRefs())
+	return &d.state.Epochs[0], nil
+	//return NCA(ctx, d.dagStore, d.state.PrevRefs())
 }
 
 // Pull takes a head and syncs the data structure from src.
@@ -234,6 +236,14 @@ func (d *DAG[T]) pullNode(ctx context.Context, src cadata.Getter, ref Ref) error
 func (d *DAG[T]) pullHeadTree(ctx context.Context, src cadata.Getter, x gotkv.Root) error {
 	// TODO: validate
 	return d.gotkv.Sync(ctx, src, d.dagStore, x, func(gotkv.Entry) error { return nil })
+}
+
+func (d *DAG[T]) ListPeers(ctx context.Context) ([]PeerID, error) {
+	return d.scheme.ListPeers(ctx, d.innerStore, d.View())
+}
+
+func (d *DAG[T]) CanRead(ctx context.Context, peer PeerID) (bool, error) {
+	return d.scheme.CanRead(ctx, d.dagStore, d.View(), peer)
 }
 
 func max[T constraints.Ordered](a, b T) T {

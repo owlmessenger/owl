@@ -126,8 +126,8 @@ func (a ChannelID) Compare(b ChannelID) int {
 }
 
 type ChannelInfo struct {
-	Scheme string
-	Latest EntryPath
+	Scheme string    `json:"scheme"`
+	Latest EntryPath `json:"latest"`
 }
 
 type EntryPath = Path
@@ -214,9 +214,10 @@ type ListChannelReq struct {
 }
 
 type SendReq struct {
-	Persona string        `json:"persona"`
-	Name    string        `json:"name"`
-	Params  MessageParams `json:"params"`
+	Persona string `json:"persona"`
+	Name    string `json:"name"`
+
+	Params MessageParams `json:"params"`
 }
 
 type ReadReq struct {
@@ -224,12 +225,6 @@ type ReadReq struct {
 	Name    string    `json:"name"`
 	Begin   EntryPath `json:"begin"`
 	Limit   int       `json:"limit"`
-}
-
-type WaitReq struct {
-	Persona string    `json:"persona"`
-	Name    string    `json:"name"`
-	Since   EntryPath `json:"since"`
 }
 
 type ChannelAPI interface {
@@ -248,12 +243,47 @@ type ChannelAPI interface {
 	Send(ctx context.Context, req *SendReq) error
 	// Read reads events from a channel
 	Read(ctx context.Context, req *ReadReq) ([]Entry, error)
-	// Wait blocks until the latest message in a channel changes is different from since
-	Wait(ctx context.Context, req *WaitReq) (EntryPath, error)
+}
+
+type SyncTarget struct {
+	Contacts  *string    `json:"contacts"`
+	Directory *string    `json:"directory"`
+	Channel   *ChannelID `json:"channel"`
+}
+
+type SyncReq struct {
+	Targets []SyncTarget `json:"targets"`
+}
+
+type WaitReq struct {
+	Targets []WaitTarget `json:"target"`
+}
+
+type ChannelWT struct {
+	ID       ChannelID `json:"id"`
+	LastPath EntryPath `json:"last_path"`
+	LastID   cadata.ID `json:"last_id"`
+}
+
+type WaitTarget struct {
+	Channel *ChannelWT `json:"channel"`
+}
+
+type WaitRes struct {
+	Channel *ChannelID `json:"channel"`
+}
+
+type BlockingAPI interface {
+	// Sync blocks until all of the targets have completed a sync.
+	// It returns the first error encountered syncing any of the targets
+	Sync(ctx context.Context, req *SyncReq) error
+	// Wait blocks until any of the targets have changed, then it returns the target that changed.
+	Wait(ctx context.Context, req *WaitReq) (*WaitRes, error)
 }
 
 type API interface {
 	PersonaAPI
 	ContactAPI
 	ChannelAPI
+	BlockingAPI
 }

@@ -2,7 +2,6 @@ package owl
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/brendoncarroll/go-state/cadata"
@@ -100,7 +99,7 @@ func viewVolumeTx(tx *sqlx.Tx, volID int) (data []byte, s0, sTop cadata.Store, _
 	return x.Data, newTxStore(tx, x.S0), newTxStore(tx, x.STop), nil
 }
 
-func viewVolume(ctx context.Context, db *sqlx.DB, volID int) ([]byte, cadata.Store, cadata.Store, error) {
+func viewVolume(ctx context.Context, db *sqlx.DB, volID int) (data []byte, s0 cadata.Store, sTop cadata.Store, _ error) {
 	var x struct {
 		Data []byte `db:"cell"`
 		S0   int    `db:"store_0"`
@@ -123,17 +122,21 @@ func findVolumes(tx dbutil.Reader, personaID int, id cadata.ID) (ret []int, _ er
 	return ret, err
 }
 
-func findVolume(tx dbutil.Reader, personaID int, ids ...cadata.ID) (int, error) {
+func findVolume(tx dbutil.Reader, personaID int, ids ...cadata.ID) (int, string, error) {
 	for _, id := range ids {
 		vols, err := findVolumes(tx, personaID, id)
 		if err != nil {
-			return 0, err
+			return 0, "", err
 		}
 		if len(vols) > 0 {
-			return vols[0], nil
+			var scheme string
+			if err := tx.Get(&scheme, `SELECT scheme FROM persona_volumes WHERE persona_id = ? AND volume_id = ?`, personaID, vols[0]); err != nil {
+				return 0, "", err
+			}
+			return vols[0], scheme, nil
 		}
 	}
-	return 0, fmt.Errorf("no feed found for persona=%v ids=%v", personaID, ids)
+	return 0, "", fmt.Errorf("no feed found for persona=%v ids=%v", personaID, ids)
 }
 
 func lookupVolumeStores(tx dbutil.Reader, volumeID int) (s0, sTop int, _ error) {
@@ -143,12 +146,4 @@ func lookupVolumeStores(tx dbutil.Reader, volumeID int) (s0, sTop int, _ error) 
 	}
 	err := tx.Get(&x, `SELECT store_top, store_0 FROM volumes WHERE id = ?`, volumeID)
 	return x.S0, x.Top, err
-}
-
-func parseJSON[T any](data []byte) (*T, error) {
-	var ret T
-	if err := json.Unmarshal(data, &ret); err != nil {
-		return nil, err
-	}
-	return &ret, nil
 }

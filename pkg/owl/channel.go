@@ -233,14 +233,6 @@ func (s *Server) Read(ctx context.Context, req *ReadReq) ([]Entry, error) {
 	}
 }
 
-func (s *Server) Wait(ctx context.Context, req *WaitReq) (EntryPath, error) {
-	if err := s.Init(ctx); err != nil {
-		return nil, err
-	}
-	panic("not implemented")
-	return nil, nil
-}
-
 func (s *personaServer) convertDM(ctx context.Context, x directmsg.Message) (*Entry, error) {
 	name, err := s.whoIs(ctx, x.Author)
 	if err != nil {
