@@ -25,50 +25,108 @@ func NewStreamReader(s cadata.Store, offset Path, getNext func(context.Context) 
 	}
 }
 
-func (sr *StreamReader) Next(ctx context.Context, ent *Entry) error {
-	if sr.end-sr.begin <= 0 {
-		ref, err := sr.getNext(ctx)
-		if err != nil {
-			return err
-		}
-		if ref == nil {
-			return EOS
-		}
-		sr.end, err = sr.s.Get(ctx, *ref, sr.buf)
-		if err != nil {
-			return err
-		}
-		sr.begin = 0
-	}
-	n, err := parseEntry(ent, sr.offset, sr.buf[sr.begin:sr.end])
+func (sr *StreamReader) Peek(ctx context.Context, ent *Entry) error {
+	_, err := sr.parseNext(ctx, ent)
 	if err != nil {
 		return err
 	}
-	sr.offset = append(sr.offset[:0], ent.Path...)
-	sr.begin += n
 	return nil
 }
 
+func (sr *StreamReader) Next(ctx context.Context, ent *Entry) error {
+	n, err := sr.parseNext(ctx, ent)
+	if err != nil {
+		return err
+	}
+	sr.begin += n
+	sr.setOffset(ent.Path)
+	return nil
+}
+
+func (sr *StreamReader) Buffered() int {
+	return sr.end - sr.begin
+}
+
+func (sr *StreamReader) parseNext(ctx context.Context, ent *Entry) (int, error) {
+	if sr.end-sr.begin <= 0 {
+		ref, err := sr.getNext(ctx)
+		if err != nil {
+			return 0, err
+		}
+		if ref == nil {
+			return 0, EOS
+		}
+		sr.end, err = sr.s.Get(ctx, *ref, sr.buf)
+		if err != nil {
+			return 0, err
+		}
+		sr.begin = 0
+	}
+	return parseEntry(ent, sr.offset, sr.buf[sr.begin:sr.end])
+}
+
+func (sr *StreamReader) setOffset(p Path) {
+	sr.offset = append(sr.offset[:0], p...)
+}
+
 func parseEntry(e *Entry, last Path, in []byte) (int, error) {
+	n, data, err := parseLP(in)
+	if err != nil {
+		return 0, err
+	}
+	retN := n
+
+	// key
+	n, err = parsePath(e, last, data)
+	if err != nil {
+		return 0, err
+	}
+	data = data[n:]
+
+	// value
+	_, value, err := parseLP(data)
+	if err != nil {
+		return 0, err
+	}
+	e.Value = append(e.Value[:0], value...)
+
+	return retN, nil
+}
+
+func parsePath(ent *Entry, last Path, in []byte) (int, error) {
+	n, data, err := parseLP(in)
+	if err != nil {
+		return 0, err
+	}
+	var delta Path
+	for len(data) > 0 {
+		n, y, err := parseVarint(data)
+		if err != nil {
+			return 0, err
+		}
+		delta = append(delta, y)
+		data = data[n:]
+	}
+	ent.Path = PathAdd(last, delta)
+	return n, nil
+}
+
+func parseLP(in []byte) (int, []byte, error) {
 	l, n := binary.Uvarint(in)
 	if n <= 0 {
-		return 0, errors.New("problem parsing varint")
+		return 0, nil, errors.New("problem parsing varint")
 	}
-	in = in[n:]
-	if uint64(len(in)) < l {
-		return 0, errors.New("short entry")
+	out := in[n:]
+	if len(out) < int(l) {
+		return 0, nil, errors.New("short entry")
 	}
-	indent := in[0]
-	data := in[1:l]
-	e.Path = append(e.Path[:0], last...)
-	if len(e.Path) > int(indent) {
-		e.Path = e.Path[:indent+1]
+	return int(l) + n, out[:l], nil
+}
+
+func parseVarint(x []byte) (int, uint64, error) {
+	y, n := binary.Uvarint(x)
+	if n <= 0 {
+		return 0, 0, errors.New("problem parsing varint")
 	}
-	if len(e.Path) == 0 {
-		e.Path = Path{0}
-	} else {
-		e.Path[indent]++
-	}
-	e.Value = append(e.Value[:0], data...)
-	return n + int(l), nil
+	return n, y, nil
 }

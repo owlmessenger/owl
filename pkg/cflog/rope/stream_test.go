@@ -2,6 +2,7 @@ package rope
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"testing"
 
@@ -16,12 +17,13 @@ func TestWriteRead(t *testing.T) {
 	const N = 10000
 	s := newStore(t)
 	var refs []Ref
-	sw := NewStreamWriter(s, 1<<12, 1<<16, func(ctx context.Context, idx Index) error {
+	sw := NewStreamWriter(s, defaultMeanSize, defaultMaxSize, new([16]byte), func(ctx context.Context, idx Index) error {
 		refs = append(refs, idx.Ref)
 		return nil
 	})
+	var v []byte
 	for i := 0; i < N; i++ {
-		v := []byte("hello world " + strconv.Itoa(i))
+		v = fmt.Appendf(v[:0], "hello world %d", i)
 		err := sw.Append(ctx, Path{uint64(i)}, v)
 		require.NoError(t, err)
 	}
@@ -45,6 +47,23 @@ func TestWriteRead(t *testing.T) {
 		require.Equal(t, expectV, ent.Value)
 	}
 	require.ErrorIs(t, sr.Next(ctx, &ent), EOS)
+}
+
+func TestEntryWrite(t *testing.T) {
+	var out []byte
+
+	prev := Path{1}
+	next := Path{2}
+	data := []byte("hello world")
+	l := entryEncodedLen(prev, next, data)
+	out = appendEntry(out, prev, next, data)
+	require.Len(t, out, l)
+
+	var ent Entry
+	l2, err := parseEntry(&ent, prev, out)
+	require.NoError(t, err)
+	require.Equal(t, l, l2)
+	require.Equal(t, next, ent.Path)
 }
 
 func newStore(t testing.TB) *cadata.MemStore {

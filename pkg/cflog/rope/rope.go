@@ -2,61 +2,76 @@ package rope
 
 import (
 	"context"
-	"encoding/binary"
 
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv/kvstreams"
-	"golang.org/x/exp/slices"
 )
 
+// EOS is the End-Of-Stream
 var EOS = kvstreams.EOS
 
+// Entry is a single entry in the Rope
 type Entry struct {
 	Path  Path
 	Value []byte
 }
 
+// Ref is a reference to a node
 type Ref = cadata.ID
 
-type Path []uint64
-
-func (p Path) Marshal() (ret []byte) {
-	for i := range p {
-		buf := [8]byte{}
-		binary.BigEndian.PutUint64(buf[:], p[i])
-		ret = append(ret, buf[:]...)
-	}
-	return ret
-}
-
-func (p Path) Next(indent uint8) Path {
-	if len(p) == 0 {
-		return Path{0}
-	}
-	ret := append(Path{}, p...)
-	ret[indent]++
-	return ret
-}
-
-func PathCompare(a, b Path) int {
-	return slices.Compare(a, b)
-}
-
+// Root is a root of a Rope
 type Root struct {
 	Ref   cadata.ID `json:"ref"`
 	Depth uint8     `json:"depth"`
-	Last  Path      `json:"last"`
+	Sum   Path      `json:"sum"`
 }
 
+// Index is a reference to a node and the sum of the change in path that would
+// occur from concatenation the index.
 type Index struct {
-	Ref  Ref
-	Last Path
+	Ref Ref
+	Sum Path
 }
 
 func Copy(ctx context.Context, b *Builder, it *Iterator) error {
-	panic("not implemented")
+	var ent Entry
+	for {
+		level := min(b.syncedBelow(), it.syncedBelow())
+		if err := it.readAt(ctx, level, &ent); err != nil {
+			return err
+		}
+		if err := b.writeAt(ctx, level, indexFromEnt(ent)); err != nil {
+			return err
+		}
+	}
 }
 
 func Interleave(ctx context.Context, b *Builder, its []*Iterator, lt func(a, b *Entry) bool) error {
 	panic("not implemented")
+}
+
+func indexFromEnt(ent Entry) Index {
+	return Index{
+		Sum: ent.Path,
+		Ref: cadata.IDFromBytes(ent.Value),
+	}
+}
+
+func readIndex(ctx context.Context, sr *StreamReader) (*Index, error) {
+	var ent Entry
+	if err := sr.Next(ctx, &ent); err != nil {
+		return nil, err
+	}
+	ref := cadata.IDFromBytes(ent.Value)
+	return &Index{
+		Sum: ent.Path,
+		Ref: ref,
+	}, nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

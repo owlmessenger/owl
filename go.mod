@@ -1,6 +1,6 @@
 module github.com/owlmessenger/owl
 
-go 1.18
+go 1.19
 
 require (
 	github.com/brendoncarroll/go-p2p v0.0.0-20220824173333-7d91893eb971
