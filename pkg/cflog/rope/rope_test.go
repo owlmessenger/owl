@@ -12,7 +12,7 @@ const (
 	defaultMaxSize  = 1 << 16
 )
 
-func TestBuilder(t *testing.T) {
+func TestBuildIterate(t *testing.T) {
 	s := newStore(t)
 	b := NewBuilder(s, defaultMeanSize, defaultMaxSize, nil)
 
@@ -26,4 +26,12 @@ func TestBuilder(t *testing.T) {
 	root, err := b.Finish(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, root)
+
+	it := NewIterator(s, *root)
+	var ent Entry
+	for i := 0; i < N; i++ {
+		err := it.Next(ctx, &ent)
+		require.NoError(t, err, i)
+	}
+	require.ErrorIs(t, it.Next(ctx, &ent), EOS)
 }

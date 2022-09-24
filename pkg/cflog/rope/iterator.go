@@ -42,28 +42,34 @@ func (it *Iterator) Seek(ctx context.Context, gteq Path) error {
 
 func (it *Iterator) getReader(level int) *StreamReader {
 	if level >= len(it.levels) {
-		it.levels[level] = NewStreamReader(it.s, nil, func(context.Context) (*Ref, error) {
-			if it.readRoot {
-				// EOS for the iterator
-				return nil, nil
-			}
-			it.readRoot = true
-			return &it.root.Ref, nil
-		})
-	} else if it.levels[level] == nil {
-		it.levels[level] = NewStreamReader(it.s, nil, func(context.Context) (*Ref, error) {
-			sr := it.getReader(level + 1)
-			if sr == nil {
-				return nil, nil
-			}
-			idx, err := readIndex(it.ctx, sr)
-			if err != nil {
-				return nil, err
-			}
-			return &idx.Ref, nil
-		})
+		panic(level)
+	}
+	if it.levels[level] == nil {
+		it.levels[level] = it.newReader(level)
 	}
 	return it.levels[level]
+}
+
+func (it *Iterator) newReader(level int) *StreamReader {
+	return NewStreamReader(it.s, nil, func(context.Context) (*Ref, error) {
+		if level+1 >= len(it.levels) {
+			if it.readRoot {
+				return nil, nil
+			} else {
+				it.readRoot = true
+				return &it.root.Ref, nil
+			}
+		}
+		sr := it.getReader(level + 1)
+		if sr == nil {
+			return nil, nil
+		}
+		idx, err := readIndex(it.ctx, sr)
+		if err != nil {
+			return nil, err
+		}
+		return &idx.Ref, nil
+	})
 }
 
 func (it *Iterator) setUnsetCtx(ctx context.Context) func() {
