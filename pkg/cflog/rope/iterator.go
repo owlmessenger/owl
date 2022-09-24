@@ -2,20 +2,33 @@ package rope
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/brendoncarroll/go-state"
 	"github.com/brendoncarroll/go-state/cadata"
 )
+
+type Span = state.Span[Path]
+
+func PointSpan(x Path) Span {
+	return state.PointSpan(x)
+}
+
+func TotalSpan() Span {
+	return state.TotalSpan[Path]()
+}
 
 type Iterator struct {
 	s    cadata.Store
 	root Root
+	span Span
 
 	readRoot bool
 	levels   []*StreamReader
 	ctx      context.Context
 }
 
-func NewIterator(s cadata.Store, root Root) *Iterator {
+func NewIterator(s cadata.Store, root Root, span Span) *Iterator {
 	it := &Iterator{
 		s:    s,
 		root: root,
@@ -27,17 +40,55 @@ func NewIterator(s cadata.Store, root Root) *Iterator {
 
 func (it *Iterator) Peek(ctx context.Context, ent *Entry) error {
 	defer it.setUnsetCtx(ctx)()
-	return it.getReader(0).Next(ctx, ent)
+	for {
+		sr := it.getReader(0)
+		if err := sr.Peek(ctx, ent); err != nil {
+			return err
+		}
+		if cmp := it.span.Compare(ent.Path, PathCompare); cmp < 0 {
+			return EOS
+		} else if cmp == 0 {
+			return nil
+		} else {
+			if err := sr.Next(ctx, ent); err != nil {
+				return err
+			}
+		}
+	}
 }
 
 func (it *Iterator) Next(ctx context.Context, ent *Entry) error {
 	defer it.setUnsetCtx(ctx)()
-	return it.getReader(0).Next(ctx, ent)
+	for {
+		if err := it.getReader(0).Next(ctx, ent); err != nil {
+			return err
+		}
+		if cmp := it.span.Compare(ent.Path, PathCompare); cmp < 0 {
+			return EOS
+		} else if cmp == 0 {
+			return nil
+		}
+	}
 }
 
 func (it *Iterator) Seek(ctx context.Context, gteq Path) error {
 	defer it.setUnsetCtx(ctx)()
-	return nil
+	if cmp := PathCompare(gteq, it.levels[0].Last()); cmp <= 0 {
+		return fmt.Errorf("cannot seek backwards")
+	}
+	var ent Entry
+	sr := it.getReader(0)
+	for {
+		if err := sr.Peek(ctx, &ent); err != nil {
+			return err
+		}
+		if PathCompare(ent.Path, gteq) >= 0 {
+			return nil
+		}
+		if err := sr.Next(ctx, &ent); err != nil {
+			return err
+		}
+	}
 }
 
 func (it *Iterator) getReader(level int) *StreamReader {

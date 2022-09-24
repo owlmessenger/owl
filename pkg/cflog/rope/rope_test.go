@@ -27,7 +27,7 @@ func TestBuildIterate(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, root)
 
-	it := NewIterator(s, *root)
+	it := NewIterator(s, *root, TotalSpan())
 	var ent Entry
 	for i := 0; i < N; i++ {
 		err := it.Next(ctx, &ent)

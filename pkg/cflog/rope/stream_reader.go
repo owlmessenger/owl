@@ -47,6 +47,10 @@ func (sr *StreamReader) Buffered() int {
 	return sr.end - sr.begin
 }
 
+func (sr *StreamReader) Last() Path {
+	return sr.offset
+}
+
 func (sr *StreamReader) parseNext(ctx context.Context, ent *Entry) (int, error) {
 	if sr.end-sr.begin <= 0 {
 		ref, err := sr.getNext(ctx)
