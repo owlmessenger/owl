@@ -86,29 +86,3 @@ func modifyDAG[T any](ctx context.Context, db *sqlx.DB, volID int, scheme owldag
 		return dag.SaveBytes(), nil
 	})
 }
-
-// dagForEach calls fn for each dag in the database
-func dagForEach[T any](ctx context.Context, db *sqlx.DB, pid int, scheme string, fn func(id int, state *owldag.State[T], s0, sTop cadata.Store) error) error {
-	var rows []struct {
-		ID   int    `db:"id"`
-		Data []byte `db:"state"`
-		S0   int    `db:"store_0"`
-		STop int    `db:"store_top"`
-	}
-	if err := db.Select(&rows, `SELECT volumes.id, volumes.state, store_0, store_top FROM persona_volumes as pv
-		JOIN volumes on pv.volume_id = volumes.id
-		WHERE pv.persona_id = ? AND pv.scheme = ?
-	`, pid, scheme); err != nil {
-		return err
-	}
-	for _, row := range rows {
-		state, err := owldag.ParseState[T](row.Data)
-		if err != nil {
-			return err
-		}
-		if err := fn(row.ID, state, newStore(db, row.S0), newStore(db, row.STop)); err != nil {
-			return err
-		}
-	}
-	return nil
-}

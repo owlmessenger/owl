@@ -61,7 +61,9 @@ func newPersonaServer(db *sqlx.DB, inetsrv inet256.Service, personaID int, membe
 				STop   int    `db:"store_top"`
 				Scheme string `db:"scheme"`
 			}
-			if err := ps.db.GetContext(ctx, &row, `SELECT cell, store_0, store_top, scheme FROM volumes WHERE id = ?`, vid); err != nil {
+			if err := ps.db.GetContext(ctx, &row, `SELECT cell, store_0, store_top, pv.scheme FROM volumes
+				JOIN persona_volumes as pv ON pv.volume_id = volumes.id
+				WHERE id = ?`, vid); err != nil {
 				return "", nil, err
 			}
 			state, err := owldag.ParseState[json.RawMessage](row.Data)
@@ -78,7 +80,9 @@ func newPersonaServer(db *sqlx.DB, inetsrv inet256.Service, personaID int, membe
 				STop   int    `db:"store_top"`
 				Scheme string `db:"scheme"`
 			}
-			if err := ps.db.GetContext(ctx, &row, `SELECT cell, store_0, store_top, scheme FROM volumes WHERE id = ?`, vid); err != nil {
+			if err := ps.db.GetContext(ctx, &row, `SELECT cell, store_0, store_top, pv.scheme FROM volumes
+				JOIN persona_volumes as pv ON pv.volume_id = volumes.id
+				WHERE id = ?`, vid); err != nil {
 				return err
 			}
 			state, err := owldag.ParseState[json.RawMessage](row.Data)
@@ -139,7 +143,17 @@ func (ps *personaServer) readLoop(ctx context.Context, n *owlnet.Node) error {
 		})
 	})
 	eg.Go(func() error {
-		return n.DAGServer(ctx, &owlnet.DAGServer{})
+		return n.DAGServer(ctx, &owlnet.DAGServer{
+			OnPushHeads: func(from owlnet.PeerID, volID int, srcDAG owlnet.Handle, heads []owldag.Head) error {
+				return ps.rep.HandlePush(ctx, from, volID, srcDAG, heads)
+			},
+			OnGetHeads: func(from owlnet.PeerID, volID int) ([]owldag.Head, error) {
+				return ps.rep.HandleGet(ctx, from, volID)
+			},
+			OnList: func(from owlnet.PeerID, schemeIs string, mustContain []owldag.Ref) ([]owlnet.LocalDAGInfo, error) {
+				return ps.listDAGs(ctx, from, schemeIs, mustContain)
+			},
+		})
 	})
 	return eg.Wait()
 }
@@ -152,6 +166,7 @@ func (ps *personaServer) newScheme(name string) owldag.Scheme[json.RawMessage] {
 		return wrapScheme[contactset.State](contactset.NewScheme(ps.members))
 	case DirectMessageV0:
 		return wrapScheme[directmsg.State](directmsg.NewScheme(func(ctx context.Context) ([]owldag.PeerID, error) {
+			// TODO: need to look up the contacts for this message and return all their peers.
 			return nil, nil
 		}))
 	default:
@@ -392,4 +407,39 @@ func (ps *personaServer) lookupContactUID(ctx context.Context, name string) (*co
 	}
 	op := contactset.New()
 	return op.Lookup(ctx, store, *x, name)
+}
+
+func (ps *personaServer) listDAGs(ctx context.Context, peer PeerID, schemeIs string, mustContain []owldag.Ref) (ret []owlnet.LocalDAGInfo, _ error) {
+	err := volForEach(ctx, ps.db, ps.id, func(vid int, schemeName string) error {
+		if schemeIs != "" && schemeName != schemeIs {
+			return nil
+		}
+		scheme := ps.newScheme(schemeName)
+		dag, err := viewDAG(ctx, ps.db, scheme, vid)
+		if err != nil {
+			return err
+		}
+		if len(mustContain) != 0 {
+			if yes, err := dag.ContainsAll(ctx, mustContain); err != nil {
+				return err
+			} else if !yes {
+				return nil
+			}
+		}
+		epoch, err := dag.GetEpoch(ctx)
+		if err != nil {
+			return err
+		}
+		if yes, err := dag.CanRead(ctx, peer); err != nil {
+			return err
+		} else if yes {
+			ret = append(ret, owlnet.LocalDAGInfo{
+				ID:     vid,
+				Scheme: schemeName,
+				Epochs: []owldag.Ref{*epoch},
+			})
+		}
+		return nil
+	})
+	return ret, err
 }

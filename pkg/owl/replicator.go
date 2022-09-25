@@ -26,6 +26,7 @@ type replicator struct {
 
 	ctx context.Context
 	cf  context.CancelFunc
+	eg  errgroup.Group
 }
 
 func newReplicator(params replicatorParams) *replicator {
@@ -41,18 +42,19 @@ func newReplicator(params replicatorParams) *replicator {
 
 func (r *replicator) Close() error {
 	r.cf()
-	return nil
+	return r.eg.Wait()
 }
 
 // Notify tells the replicator that a dag has changed so it will begin replicating it.
 func (r *replicator) Notify(vid int) {
 	logctx.Infof(r.ctx, "volume %d has changed. syncing...", vid)
 	// TODO: use a queue
-	go func() {
+	r.eg.Go(func() error {
 		if err := r.Sync(r.ctx, vid); err != nil {
-			logctx.Errorf(r.ctx, "replicator.Push", err)
+			logctx.Errorf(r.ctx, "replicator.Push %v", err)
 		}
-	}()
+		return nil
+	})
 }
 
 // Wait blocks on the DAG in vid, until cond(dag_state) == false
@@ -96,12 +98,13 @@ func (r *replicator) Push(ctx context.Context, vid int) error {
 	for i, dst := range peers {
 		i, dst := i, dst
 		eg.Go(func() error {
-			info, err := dagClient.Get(ctx, dst, scheme, []owldag.Ref{*epoch})
-			if err != nil {
-				logctx.Errorf(ctx, "while looking up DAG on %v: %v", dst, err)
-				return nil
-			}
-			errs[i] = dagClient.PushHeads(ctx, dst, uint32(vid), info.Handle, heads)
+			errs[i] = func() error {
+				info, err := dagClient.Get(ctx, dst, scheme, []owldag.Ref{*epoch})
+				if err != nil {
+					return nil
+				}
+				return dagClient.PushHeads(ctx, dst, uint32(vid), info.Handle, heads)
+			}()
 			return nil
 		})
 	}
@@ -134,26 +137,27 @@ func (r *replicator) Pull(ctx context.Context, id int) error {
 	dagClient := node.DAGClient()
 	eg := errgroup.Group{}
 	errs := make([]error, len(peers))
+	heads := make([][]owldag.Head, len(peers))
 	for i, dst := range peers {
 		i, dst := i, dst
 		eg.Go(func() error {
-			info, err := dagClient.Get(ctx, dst, scheme, []owldag.Ref{*epoch})
-			if err != nil {
-				return err
-			}
-			heads, err := dagClient.GetHeads(ctx, dst, info.Handle)
-			if err != nil {
-				errs[i] = err
-				return nil
-			}
-			logctx.Infof(ctx, "heads: %v", heads)
+			heads[i], errs[i] = func() ([]owldag.Head, error) {
+				info, err := dagClient.Get(ctx, dst, scheme, []owldag.Ref{*epoch})
+				if err != nil {
+					return nil, err
+				}
+				return dagClient.GetHeads(ctx, dst, info.Handle)
+			}()
 			return nil
 		})
 	}
-	return eg.Wait()
+	if err := eg.Wait(); err != nil {
+		return err
+	}
+	return nil
 }
 
-func (r *replicator) HandlePush(ctx context.Context, src PeerID, srcDAG owlnet.Handle, volID int, heads []owldag.Head) error {
+func (r *replicator) HandlePush(ctx context.Context, src PeerID, volID int, srcDAG owlnet.Handle, heads []owldag.Head) error {
 	node, err := r.params.GetNode(ctx)
 	if err != nil {
 		return err

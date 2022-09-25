@@ -49,10 +49,12 @@ func (s *Server) Init(ctx context.Context) (err error) {
 	return err
 }
 
-func (s *Server) Close() error {
+func (s *Server) Close() (retErr error) {
 	s.mu.Lock()
 	for _, ps := range s.personas {
-		ps.Close()
+		if err := ps.Close(); retErr == nil {
+			retErr = err
+		}
 	}
 	s.mu.Unlock()
 	s.db.Close()

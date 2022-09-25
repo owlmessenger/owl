@@ -43,10 +43,10 @@ type GetListReq struct {
 }
 
 type DAGInfo struct {
-	Handle Handle       `json:"handle"`
 	Scheme string       `json:"scheme"`
-	Stores []Handle     `json:"stores"`
 	Epochs []owldag.Ref `json:"epochs"`
+	Handle Handle       `json:"handle"`
+	Stores []Handle     `json:"stores"`
 }
 
 type LocalDAGInfo struct {
@@ -129,9 +129,9 @@ func (dc *DAGClient) ask(ctx context.Context, dst PeerID, req DAGReq) (*DAGRes, 
 }
 
 type DAGServer struct {
-	OnPushHeads func(from PeerID, volID int, heads []owldag.Head) error
+	OnPushHeads func(from PeerID, volID int, srcDAG Handle, heads []owldag.Head) error
 	OnGetHeads  func(from PeerID, volID int) ([]owldag.Head, error)
-	OnList      func(from PeerID) ([]LocalDAGInfo, error)
+	OnList      func(from PeerID, schemeIs string, mustContain []owldag.Ref) ([]LocalDAGInfo, error)
 
 	openHandle func(PeerID, Handle) (uint32, error)
 	newHandle  func(PeerID, uint32) Handle
@@ -152,7 +152,7 @@ func (s DAGServer) HandleAsk(ctx context.Context, resp []byte, msg p2p.Message[P
 			return &DAGRes{GetHeads: heads}, nil
 		case req.PushHeads != nil:
 		case req.GetList != nil:
-			localInfos, err := s.OnList(msg.Src)
+			localInfos, err := s.OnList(msg.Src, req.GetList.Scheme, req.GetList.Contains)
 			if err != nil {
 				return nil, err
 			}
