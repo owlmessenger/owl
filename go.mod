@@ -8,6 +8,7 @@ require (
 	github.com/brendoncarroll/go-tai64 v0.0.0-20220527232055-eab29bd93d59
 	github.com/brendoncarroll/stdctx v0.0.0-20220906134452-42ebcbf4cd87
 	github.com/gotvc/got v0.0.5-0.20220921122906-ddc299e94f10
+	github.com/inet256/diet256 v0.0.3-0.20220921235605-814a3d2912d9
 	github.com/inet256/inet256 v0.0.5
 	github.com/jmoiron/sqlx v1.3.5
 	github.com/mattn/go-sqlite3 v1.14.12
@@ -35,7 +36,6 @@ require (
 	github.com/google/btree v1.1.2 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
-	github.com/inet256/diet256 v0.0.3-0.20220921235605-814a3d2912d9 // indirect
 	github.com/jonboulle/clockwork v0.1.1-0.20190114141812-62fb9bc030d1 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/lucas-clemente/quic-go v0.29.0 // indirect
