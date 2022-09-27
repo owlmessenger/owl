@@ -246,6 +246,19 @@ func (d *DAG[T]) CanRead(ctx context.Context, peer PeerID) (bool, error) {
 	return d.scheme.CanRead(ctx, d.dagStore, d.View(), peer)
 }
 
+func (d *DAG[T]) ContainsAll(ctx context.Context, refs []Ref) (bool, error) {
+	for _, ref := range refs {
+		yes, err := cadata.Exists(ctx, d.dagStore, ref)
+		if err != nil {
+			return false, err
+		}
+		if !yes {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 func max[T constraints.Ordered](a, b T) T {
 	if a > b {
 		return a

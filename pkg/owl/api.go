@@ -29,11 +29,6 @@ type CreatePersonaReq struct {
 	Name string `json:"name"`
 }
 
-type JoinPersonaReq struct {
-	Name  string   `json:"name"`
-	Peers []PeerID `json:"peers"`
-}
-
 type GetPersonaReq struct {
 	Name string `json:"name"`
 }
@@ -53,10 +48,10 @@ type PersonaAPI interface {
 	// If any ids are provided then the persona will not have a feed, and will attempt to join
 	// a feed provided by one of the IDs.
 	CreatePersona(ctx context.Context, req *CreatePersonaReq) error
-	// JoinPersona joins a persona, which has already been created on another peer.
-	JoinPersona(ctx context.Context, req *JoinPersonaReq) error
 	// GetPersona retrieves the Persona at name
 	GetPersona(ctx context.Context, req *GetPersonaReq) (*Persona, error)
+	// DropPersona drops all the state on the local instance associated with a persona
+	DropPersona(ctx context.Context, name string) error
 	// ListPersonas lists personas on the instance.
 	ListPersonas(ctx context.Context) ([]string, error)
 	// ExpandPersona adds a peer to the Persona at name.

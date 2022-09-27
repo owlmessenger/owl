@@ -35,9 +35,8 @@ func TestJoinPersona(t *testing.T, sf SetupFunc) {
 	a, b := xs[0], xs[1]
 
 	createPersona(t, a, "X")
-	joinPersona(t, b, "X", []inet256.Addr{getPeer(t, a, "X")})
+	createPersona(t, b, "X")
 
 	expandPersona(t, a, "X", []inet256.Addr{getPeer(t, b, "X")})
-
-	createContact(t, a, "X", "Y", inet256.Addr{})
+	expandPersona(t, b, "X", []inet256.Addr{getPeer(t, a, "X")})
 }

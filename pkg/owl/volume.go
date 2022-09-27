@@ -147,3 +147,36 @@ func lookupVolumeStores(tx dbutil.Reader, volumeID int) (s0, sTop int, _ error) 
 	err := tx.Get(&x, `SELECT store_top, store_0 FROM volumes WHERE id = ?`, volumeID)
 	return x.S0, x.Top, err
 }
+
+type volume struct {
+	Cell   cells.Cell
+	Stores [2]cadata.Store
+}
+
+func openVolume(ctx context.Context, db *sqlx.DB, vid int) (*volume, error) {
+	s0ID, sTopID, err := lookupVolumeStores(db, vid)
+	if err != nil {
+		return nil, err
+	}
+	return &volume{
+		Cell:   newCell(db, vid),
+		Stores: [2]cadata.Store{newStore(db, s0ID), newStore(db, sTopID)},
+	}, nil
+}
+
+// volForEach calls fn for each dag in the database
+func volForEach(ctx context.Context, db *sqlx.DB, pid int, fn func(id int, scheme string) error) error {
+	var rows []struct {
+		ID     int    `db:"id"`
+		Scheme string `db:"scheme"`
+	}
+	if err := db.Select(&rows, `SELECT volume_id, scheme FROM persona_volumes as pv WHERE pv.persona_id = ?`, pid); err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if err := fn(row.ID, row.Scheme); err != nil {
+			return err
+		}
+	}
+	return nil
+}

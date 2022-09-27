@@ -2,8 +2,11 @@ package owlnet
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 
 	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-p2p/p/p2pmux"
@@ -24,8 +27,9 @@ const (
 
 type Node struct {
 	swarm Swarm
-	mux   p2pmux.SecureAskMux[PeerID, string]
 
+	secret        *[32]byte
+	mux           p2pmux.SecureAskMux[PeerID, string]
 	blobPullSwarm p2p.SecureAskSwarm[PeerID]
 	dagSwarm      p2p.SecureAskSwarm[PeerID]
 }
@@ -37,10 +41,18 @@ func New(swarm Swarm) *Node {
 		mux:           mux,
 		blobPullSwarm: mux.Open(channelBlobPull),
 		dagSwarm:      mux.Open(channelDAG),
+		secret:        generateSecret(),
 	}
 }
 
 func (n *Node) BlobPullServer(ctx context.Context, srv *BlobPullServer) error {
+	srv.openHandle = func(peerID PeerID, h Handle) (uint32, uint8, error) {
+		data, err := OpenHandle(n.secret, peerID, h)
+		if err != nil {
+			return 0, 0, err
+		}
+		return binary.BigEndian.Uint32(data[:4]), data[4], nil
+	}
 	return ServeAsks(ctx, n.blobPullSwarm, srv)
 }
 
@@ -49,11 +61,30 @@ func (n *Node) BlobPullClient() BlobPullClient {
 }
 
 func (n *Node) DAGServer(ctx context.Context, srv *DAGServer) error {
+	srv.openHandle = func(peerID PeerID, h Handle) (uint32, error) {
+		data, err := OpenHandle(n.secret, peerID, h)
+		if err != nil {
+			return 0, err
+		}
+		return binary.BigEndian.Uint32(data[:]), nil
+	}
+	srv.newHandle = func(peerID PeerID, x uint32) Handle {
+		var data [16]byte
+		binary.BigEndian.PutUint32(data[:], x)
+		return NewHandle(n.secret, peerID, &data)
+	}
 	return ServeAsks(ctx, n.dagSwarm, srv)
 }
 
-func (n *Node) DAGClient() DAGClient {
-	return DAGClient{n.dagSwarm}
+func (n *Node) DAGClient() *DAGClient {
+	return &DAGClient{
+		swarm: n.dagSwarm,
+		newHandle: func(peerID PeerID, x uint32) Handle {
+			var data [16]byte
+			binary.BigEndian.PutUint32(data[:], x)
+			return NewHandle(n.secret, peerID, &data)
+		},
+	}
 }
 
 func (n *Node) Close() error {
@@ -109,4 +140,12 @@ func (we WireError) Error() string {
 
 func NewError(c codes.Code, msg string) *WireError {
 	return &WireError{Code: c, Msg: msg}
+}
+
+func generateSecret() *[32]byte {
+	out := new([32]byte)
+	if _, err := io.ReadFull(rand.Reader, out[:]); err != nil {
+		panic(err)
+	}
+	return out
 }

@@ -49,23 +49,3 @@ func newPersonaCreateCmd(sf func() owl.PersonaAPI) *cobra.Command {
 		},
 	}
 }
-
-func newPersonaJoinCmd(sf func() owl.PersonaAPI) *cobra.Command {
-	return &cobra.Command{
-		Use:  "join",
-		Args: cobra.MinimumNArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			name := args[0]
-			idb64s := args[1:]
-			var ids []owl.PeerID
-			for _, b64s := range idb64s {
-				id, err := owl.ParseB64PeerID([]byte(b64s))
-				if err != nil {
-					return err
-				}
-				ids = append(ids, id)
-			}
-			return sf().JoinPersona(ctx, &owl.JoinPersonaReq{Name: name, Peers: ids})
-		},
-	}
-}

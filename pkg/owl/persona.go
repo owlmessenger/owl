@@ -62,25 +62,10 @@ func (s *Server) CreatePersona(ctx context.Context, req *CreatePersonaReq) error
 	})
 }
 
-func (s *Server) JoinPersona(ctx context.Context, req *JoinPersonaReq) error {
+func (s *Server) DropPersona(ctx context.Context, name string) error {
 	if err := s.Init(ctx); err != nil {
 		return err
 	}
-	_, privKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return err
-	}
-
-	return dbutil.DoTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		personaID, err := s.createPersona(tx, req.Name)
-		if err != nil {
-			return err
-		}
-		return s.addPrivateKey(tx, personaID, privKey)
-	})
-}
-
-func (s *Server) DropPersona(ctx context.Context, name string) error {
 	panic("not implemented")
 }
 

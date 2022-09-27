@@ -14,14 +14,15 @@ var (
 type Store struct {
 	c    BlobPullClient
 	addr PeerID
+	h    Handle
 }
 
-func NewStore(c BlobPullClient, addr PeerID) *Store {
+func NewStore(c BlobPullClient, addr PeerID, h Handle) *Store {
 	return &Store{c: c, addr: addr}
 }
 
 func (s *Store) Get(ctx context.Context, id cadata.ID, buf []byte) (int, error) {
-	return s.c.Pull(ctx, s.addr, id, buf)
+	return s.c.Pull(ctx, s.addr, s.h, id, buf)
 }
 
 func (s *Store) Hash(x []byte) cadata.ID {
