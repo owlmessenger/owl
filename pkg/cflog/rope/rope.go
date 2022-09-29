@@ -27,6 +27,7 @@ type Root[Ref any] struct {
 // occur from concatenation the index.
 type Index[Ref any] struct {
 	Ref Ref
+	// Adding Sum to an offset is the same as adding everything reachable from Ref to the offset.
 	Sum Path
 }
 

@@ -72,8 +72,10 @@ func (o *Operator) AppendBatch(ctx context.Context, s cadata.Store, x Root, thre
 	}
 	for _, ep := range eps {
 		data, err := json.Marshal(wireEntry{
-			Author: ep.Author,
-			Data:   ep.Data,
+			Author:    ep.Author,
+			Data:      ep.Data,
+			Timestamp: ep.Timestamp,
+			Parent:    ep.Parent,
 		})
 		if err != nil {
 			return nil, err

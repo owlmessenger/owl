@@ -119,8 +119,8 @@ func (it *Iterator[Ref]) syncedBelow() int {
 }
 
 func (it *Iterator[Ref]) readAt(ctx context.Context, level int, ent *Entry) error {
-	if level >= it.syncedBelow() {
-		panic("rope.Iterator[Ref]: read from wrong level")
+	if level > it.syncedBelow() {
+		panic(fmt.Sprintf("rope.Iterator: read from wrong level %d", level))
 	}
 	return it.levels[level].Next(ctx, ent)
 }

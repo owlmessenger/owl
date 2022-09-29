@@ -32,13 +32,16 @@ func (b *Builder[R]) Append(ctx context.Context, indent uint8, data []byte) erro
 	if indent > 0 {
 		panic(indent) // TODO: support paths
 	}
-	w := b.getWriter(0)
-	next := b.last.Next(indent)
-	if err := w.Append(ctx, next, data); err != nil {
-		return err
+	var next Path
+	if len(b.last) == 0 {
+		next = Path{0}
+	} else {
+		next = b.last.Next(indent)
 	}
-	b.last = next
-	return nil
+	return b.writeAt(ctx, 0, Entry{
+		Path:  next,
+		Value: data,
+	})
 }
 
 func (b *Builder[Ref]) Finish(ctx context.Context) (*Root[Ref], error) {
@@ -75,17 +78,23 @@ func (b *Builder[Ref]) newWriter(level int) *StreamWriter[Ref] {
 }
 
 func (b *Builder[Ref]) syncedBelow() int {
-	for i := range b.levels {
-		if b.levels[i].Buffered() != 0 {
-			return i
-		}
-	}
-	return len(b.levels)
+	return 0
+	// TODO
+	// for i := range b.levels {
+	// 	if b.levels[i].Buffered() != 0 {
+	// 		return i
+	// 	}
+	// }
+	// return len(b.levels)
 }
 
 func (b *Builder[Ref]) writeAt(ctx context.Context, level int, ent Entry) error {
-	if b.syncedBelow() <= level {
-		panic("write to builder at wrong level")
+	if b.syncedBelow() < level {
+		panic(fmt.Sprintf("write to builder at wrong level %d", level))
 	}
-	return b.getWriter(level).Append(ctx, ent.Path, ent.Value)
+	if err := b.getWriter(level).Append(ctx, ent.Path, ent.Value); err != nil {
+		return err
+	}
+	b.last = append(b.last[:0], ent.Path...)
+	return nil
 }

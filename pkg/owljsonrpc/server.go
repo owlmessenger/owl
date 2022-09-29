@@ -45,7 +45,7 @@ func (h handler) Handle(ctx context.Context, c *jsonrpc2.Conn, r *jsonrpc2.Reque
 	}
 }
 
-// Call looks for a method on target, and then unmarshals reqData into something that looks like it's inputa
+// Call looks for a method on target, and then unmarshals reqData into something that looks like its input
 //
 // Valid method signatures:
 // - (a *A) func(ctx context.Context) error

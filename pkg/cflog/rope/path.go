@@ -8,7 +8,7 @@ import (
 
 type Path []uint64
 
-func (p Path) Next(indent uint8) Path {
+func (p Path) Next(indent uint8) (ret Path) {
 	delta := make(Path, indent+1)
 	delta[indent] = 1
 	return PathAdd(p, delta)
@@ -42,6 +42,5 @@ func PathAdd(a, b Path) (ret Path) {
 	if len(b) == 0 {
 		return append(ret, a...)
 	}
-	ret = Path{a[0] + b[0]}
-	return ret
+	return Path{a[0] + b[0]}
 }

@@ -5,14 +5,16 @@ import (
 	"net"
 	"testing"
 
+	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/inet256/inet256/client/go_client/inet256client"
 	"github.com/owlmessenger/owl/pkg/dbutil"
 	"github.com/owlmessenger/owl/pkg/owl"
 	"github.com/owlmessenger/owl/pkg/owltest"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
-var ctx = context.Background()
+var ctx = logctx.WithFmtLogger(context.Background(), logrus.StandardLogger())
 
 func TestJSONRPC(t *testing.T) {
 	owltest.TestAPI(t, func(t testing.TB, xs []owl.API) {

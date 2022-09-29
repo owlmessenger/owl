@@ -7,14 +7,12 @@ import (
 	"testing"
 
 	"github.com/brendoncarroll/go-state/cadata"
-	"github.com/owlmessenger/owl/pkg/owldag"
 	"github.com/stretchr/testify/require"
 )
 
 var ctx = context.Background()
 
 func TestWriteRead(t *testing.T) {
-	type Ref = cadata.ID
 	const N = 10000
 	s := newStore(t)
 	var refs []Ref
@@ -65,12 +63,4 @@ func TestEntryWrite(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, l, l2)
 	require.Equal(t, next, ent.Path)
-}
-
-func newStore(t testing.TB) WriteStorage[cadata.ID] {
-	s := cadata.NewMem(owldag.Hash, 1<<20)
-	return writeStore{
-		storage: storage{s},
-		s:       s,
-	}
 }

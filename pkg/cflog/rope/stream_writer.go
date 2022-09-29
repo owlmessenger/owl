@@ -44,7 +44,7 @@ func NewStreamWriter[Ref any](s WriteStorage[Ref], meanSize, maxSize int, seed *
 }
 
 func (sw *StreamWriter[Ref]) Append(ctx context.Context, p Path, data []byte) error {
-	if PathCompare(p, sw.last) <= 0 {
+	if len(sw.last) != 0 && PathCompare(p, sw.last) <= 0 {
 		return fmt.Errorf("%v <= %v", p, sw.last)
 	}
 	l := entryEncodedLen(sw.last, p, data)
