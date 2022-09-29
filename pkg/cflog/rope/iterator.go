@@ -2,6 +2,7 @@ package rope
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/brendoncarroll/go-state"
@@ -66,6 +67,9 @@ func (it *Iterator[Ref]) Peek(ctx context.Context, ent *Entry) error {
 		return err
 	}
 	ent.set(Path(it.offset), se.Value)
+	if !it.span.Contains(ent.Path, PathCompare) {
+		return EOS
+	}
 	return nil
 }
 
@@ -83,12 +87,18 @@ func (it *Iterator[Ref]) Next(ctx context.Context, ent *Entry) error {
 		return err
 	}
 	ent.set(Path(it.offset), se.Value)
+	if !it.span.Contains(ent.Path, PathCompare) {
+		return EOS
+	}
 	it.offset.Add(it.offset, se.Weight)
 	return nil
 }
 
 func (it *Iterator[Ref]) Seek(ctx context.Context, gteq Path) error {
 	defer it.setUnsetCtx(ctx)()
+	if PathCompare(gteq, Path(it.offset)) < 0 {
+		return errors.New("rope.Iterator: cannot seek backwards")
+	}
 	panic("seek not yet supported")
 }
 

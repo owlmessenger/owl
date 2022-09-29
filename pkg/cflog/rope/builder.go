@@ -82,14 +82,12 @@ func (b *Builder[Ref]) newWriter(level int) *StreamWriter[Ref] {
 }
 
 func (b *Builder[Ref]) syncedBelow() int {
-	return 0
-	// TODO
-	// for i := range b.levels {
-	// 	if b.levels[i].Buffered() != 0 {
-	// 		return i
-	// 	}
-	// }
-	// return len(b.levels)
+	for i := range b.levels {
+		if b.levels[i].Buffered() != 0 {
+			return i
+		}
+	}
+	return len(b.levels)
 }
 
 func (b *Builder[Ref]) writeAt(ctx context.Context, level int, ent StreamEntry) error {
