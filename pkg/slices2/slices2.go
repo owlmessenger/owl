@@ -83,3 +83,19 @@ func ParMap[X, Y any, SX ~[]X](xs SX, fn func(X) (Y, error)) ([]Y, error) {
 	}
 	return ys, nil
 }
+
+func FoldLeft[X, Acc any, S ~[]X](xs S, init Acc, fn func(Acc, X) Acc) Acc {
+	a := init
+	for i := range xs {
+		a = fn(a, xs[i])
+	}
+	return a
+}
+
+func FoldRight[X, Acc any, S ~[]X](xs S, init Acc, fn func(Acc, X) Acc) Acc {
+	a := init
+	for i := len(xs) - 1; i >= 0; i-- {
+		a = fn(a, xs[i])
+	}
+	return a
+}

@@ -10,6 +10,7 @@ import (
 	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/inet256/inet256/pkg/inet256"
 	"github.com/owlmessenger/owl/pkg/heap"
+	"github.com/owlmessenger/owl/pkg/slices2"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -101,13 +102,10 @@ func CheckNode[T any](ctx context.Context, s cadata.Getter, node Node[T]) error 
 	if err != nil {
 		return err
 	}
-	// Check N
-	var expectedN uint64
-	for _, node2 := range previous {
-		if node2.N+1 > expectedN {
-			expectedN = node2.N + 1
-		}
-	}
+	maxN := slices2.FoldLeft(previous, 0, func(acc uint64, x Node[T]) uint64 {
+		return max(acc, x.N)
+	})
+	expectedN := maxN + 1
 	if node.N != expectedN {
 		return ErrBadN[T]{Have: node.N, Want: expectedN, Node: node}
 	}
