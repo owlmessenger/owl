@@ -6,24 +6,23 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/dchest/siphash"
 )
 
-type IndexCallback = func(context.Context, Index) error
+type IndexCallback[Ref any] func(context.Context, Index[Ref]) error
 
-type StreamWriter struct {
-	s        cadata.Store
+type StreamWriter[Ref any] struct {
+	s        WriteStorage[Ref]
 	meanSize int
 	maxSize  int
-	cb       IndexCallback
+	cb       IndexCallback[Ref]
 	seed     *[16]byte
 
 	last Path
 	buf  []byte
 }
 
-func NewStreamWriter(s cadata.Store, meanSize, maxSize int, seed *[16]byte, cb IndexCallback) *StreamWriter {
+func NewStreamWriter[Ref any](s WriteStorage[Ref], meanSize, maxSize int, seed *[16]byte, cb IndexCallback[Ref]) *StreamWriter[Ref] {
 	if meanSize > maxSize {
 		panic(fmt.Sprintf("%d > %d", meanSize, maxSize))
 	}
@@ -33,7 +32,7 @@ func NewStreamWriter(s cadata.Store, meanSize, maxSize int, seed *[16]byte, cb I
 	if seed == nil {
 		seed = new([16]byte)
 	}
-	return &StreamWriter{
+	return &StreamWriter[Ref]{
 		s:        s,
 		meanSize: meanSize,
 		maxSize:  maxSize,
@@ -44,7 +43,7 @@ func NewStreamWriter(s cadata.Store, meanSize, maxSize int, seed *[16]byte, cb I
 	}
 }
 
-func (sw *StreamWriter) Append(ctx context.Context, p Path, data []byte) error {
+func (sw *StreamWriter[Ref]) Append(ctx context.Context, p Path, data []byte) error {
 	if PathCompare(p, sw.last) <= 0 {
 		return fmt.Errorf("%v <= %v", p, sw.last)
 	}
@@ -66,33 +65,33 @@ func (sw *StreamWriter) Append(ctx context.Context, p Path, data []byte) error {
 	return nil
 }
 
-func (sw *StreamWriter) Flush(ctx context.Context) error {
+func (sw *StreamWriter[Ref]) Flush(ctx context.Context) error {
 	ref, err := sw.s.Post(ctx, sw.buf)
 	if err != nil {
 		return err
 	}
 	sw.buf = sw.buf[:0]
-	return sw.cb(ctx, Index{
+	return sw.cb(ctx, Index[Ref]{
 		Ref: ref,
 		Sum: sw.last,
 	})
 }
 
-func (sw *StreamWriter) Buffered() int {
+func (sw *StreamWriter[Ref]) Buffered() int {
 	return len(sw.buf)
 }
 
-func (sw *StreamWriter) Last() Path {
+func (sw *StreamWriter[Ref]) Last() Path {
 	return sw.last
 }
 
-func (sw *StreamWriter) isSplitPoint(entryData []byte) bool {
+func (sw *StreamWriter[Ref]) isSplitPoint(entryData []byte) bool {
 	r := hash64(entryData, sw.seed)
 	prob := math.MaxUint64 / uint64(sw.meanSize) * uint64(len(entryData))
 	return r < prob
 }
 
-func (sw *StreamWriter) setLast(p Path) {
+func (sw *StreamWriter[Ref]) setLast(p Path) {
 	sw.last = append(sw.last[:0], p...)
 }
 

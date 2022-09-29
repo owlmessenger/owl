@@ -2,8 +2,8 @@ package rope
 
 import (
 	"context"
+	"errors"
 
-	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv/kvstreams"
 )
 
@@ -16,54 +16,66 @@ type Entry struct {
 	Value []byte
 }
 
-// Ref is a reference to a node
-type Ref = cadata.ID
-
 // Root is a root of a Rope
-type Root struct {
-	Ref   cadata.ID `json:"ref"`
-	Depth uint8     `json:"depth"`
-	Sum   Path      `json:"sum"`
+type Root[Ref any] struct {
+	Ref   Ref   `json:"ref"`
+	Depth uint8 `json:"depth"`
+	Sum   Path  `json:"sum"`
 }
 
 // Index is a reference to a node and the sum of the change in path that would
 // occur from concatenation the index.
-type Index struct {
+type Index[Ref any] struct {
 	Ref Ref
 	Sum Path
 }
 
-func Copy(ctx context.Context, b *Builder, it *Iterator) error {
+func Copy[Ref any](ctx context.Context, b *Builder[Ref], it *Iterator[Ref]) error {
 	var ent Entry
 	for {
 		level := min(b.syncedBelow(), it.syncedBelow())
 		if err := it.readAt(ctx, level, &ent); err != nil {
+			if errors.Is(err, EOS) {
+				break
+			}
 			return err
 		}
-		if err := b.writeAt(ctx, level, indexFromEnt(ent)); err != nil {
+		if err := b.writeAt(ctx, level, ent); err != nil {
 			return err
 		}
 	}
+	return nil
 }
 
-func Interleave(ctx context.Context, b *Builder, its []*Iterator, lt func(a, b *Entry) bool) error {
+func ListEntries[Ref any](ctx context.Context, s Storage[Ref], offset Path, idx Index[Ref]) (ret []Entry, _ error) {
+	sr := NewStreamReader(s, offset, SingleIndex(idx))
+	for {
+		var ent Entry
+		if err := sr.Next(ctx, &ent); err != nil {
+			if errors.Is(err, EOS) {
+				break
+			}
+			return nil, err
+		}
+		ret = append(ret, ent)
+	}
+	return ret, nil
+}
+
+func Interleave[Ref any](ctx context.Context, b *Builder[Ref], its []*Iterator[Ref], lt func(a, b *Entry) bool) error {
 	panic("not implemented")
 }
 
-func indexFromEnt(ent Entry) Index {
-	return Index{
-		Sum: ent.Path,
-		Ref: cadata.IDFromBytes(ent.Value),
-	}
-}
-
-func readIndex(ctx context.Context, sr *StreamReader) (*Index, error) {
+func readIndex[Ref any](ctx context.Context, sr *StreamReader[Ref]) (*Index[Ref], error) {
 	var ent Entry
 	if err := sr.Next(ctx, &ent); err != nil {
 		return nil, err
 	}
-	ref := cadata.IDFromBytes(ent.Value)
-	return &Index{
+	ref, err := sr.s.ParseRef(ent.Value)
+	if err != nil {
+		return nil, err
+	}
+	return &Index[Ref]{
 		Sum: ent.Path,
 		Ref: ref,
 	}, nil

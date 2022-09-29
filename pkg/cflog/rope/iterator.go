@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/brendoncarroll/go-state"
-	"github.com/brendoncarroll/go-state/cadata"
 )
 
 type Span = state.Span[Path]
@@ -18,27 +17,27 @@ func TotalSpan() Span {
 	return state.TotalSpan[Path]()
 }
 
-type Iterator struct {
-	s    cadata.Store
-	root Root
+type Iterator[Ref any] struct {
+	s    Storage[Ref]
+	root Root[Ref]
 	span Span
 
 	readRoot bool
-	levels   []*StreamReader
+	levels   []*StreamReader[Ref]
 	ctx      context.Context
 }
 
-func NewIterator(s cadata.Store, root Root, span Span) *Iterator {
-	it := &Iterator{
+func NewIterator[Ref any](s Storage[Ref], root Root[Ref], span Span) *Iterator[Ref] {
+	it := &Iterator[Ref]{
 		s:    s,
 		root: root,
 
-		levels: make([]*StreamReader, root.Depth+1),
+		levels: make([]*StreamReader[Ref], root.Depth+1),
 	}
 	return it
 }
 
-func (it *Iterator) Peek(ctx context.Context, ent *Entry) error {
+func (it *Iterator[Ref]) Peek(ctx context.Context, ent *Entry) error {
 	defer it.setUnsetCtx(ctx)()
 	for {
 		sr := it.getReader(0)
@@ -57,7 +56,7 @@ func (it *Iterator) Peek(ctx context.Context, ent *Entry) error {
 	}
 }
 
-func (it *Iterator) Next(ctx context.Context, ent *Entry) error {
+func (it *Iterator[Ref]) Next(ctx context.Context, ent *Entry) error {
 	defer it.setUnsetCtx(ctx)()
 	for {
 		if err := it.getReader(0).Next(ctx, ent); err != nil {
@@ -71,7 +70,7 @@ func (it *Iterator) Next(ctx context.Context, ent *Entry) error {
 	}
 }
 
-func (it *Iterator) Seek(ctx context.Context, gteq Path) error {
+func (it *Iterator[Ref]) Seek(ctx context.Context, gteq Path) error {
 	defer it.setUnsetCtx(ctx)()
 	if cmp := PathCompare(gteq, it.levels[0].Last()); cmp <= 0 {
 		return fmt.Errorf("cannot seek backwards")
@@ -91,7 +90,7 @@ func (it *Iterator) Seek(ctx context.Context, gteq Path) error {
 	}
 }
 
-func (it *Iterator) getReader(level int) *StreamReader {
+func (it *Iterator[Ref]) getReader(level int) *StreamReader[Ref] {
 	if level >= len(it.levels) {
 		panic(level)
 	}
@@ -101,7 +100,7 @@ func (it *Iterator) getReader(level int) *StreamReader {
 	return it.levels[level]
 }
 
-func (it *Iterator) newReader(level int) *StreamReader {
+func (it *Iterator[Ref]) newReader(level int) *StreamReader[Ref] {
 	return NewStreamReader(it.s, nil, func(context.Context) (*Ref, error) {
 		if level+1 >= len(it.levels) {
 			if it.readRoot {
@@ -123,12 +122,12 @@ func (it *Iterator) newReader(level int) *StreamReader {
 	})
 }
 
-func (it *Iterator) setUnsetCtx(ctx context.Context) func() {
+func (it *Iterator[Ref]) setUnsetCtx(ctx context.Context) func() {
 	it.ctx = ctx
 	return func() { it.ctx = nil }
 }
 
-func (it *Iterator) syncedBelow() int {
+func (it *Iterator[Ref]) syncedBelow() int {
 	for i := range it.levels {
 		if it.levels[i].Buffered() == 0 {
 			return i
@@ -137,9 +136,9 @@ func (it *Iterator) syncedBelow() int {
 	return len(it.levels)
 }
 
-func (it *Iterator) readAt(ctx context.Context, level int, ent *Entry) error {
+func (it *Iterator[Ref]) readAt(ctx context.Context, level int, ent *Entry) error {
 	if level >= it.syncedBelow() {
-		panic("rope.Iterator: read from wrong level")
+		panic("rope.Iterator[Ref]: read from wrong level")
 	}
 	return it.levels[level].Next(ctx, ent)
 }

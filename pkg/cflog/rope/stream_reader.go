@@ -4,20 +4,29 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-
-	"github.com/brendoncarroll/go-state/cadata"
 )
 
-type StreamReader struct {
-	s          cadata.Store
+func SingleIndex[Ref any](idx Index[Ref]) func(context.Context) (*Ref, error) {
+	var emitted bool
+	return func(ctx context.Context) (*Ref, error) {
+		if emitted {
+			return nil, nil
+		}
+		emitted = true
+		return &idx.Ref, nil
+	}
+}
+
+type StreamReader[Ref any] struct {
+	s          Storage[Ref]
 	getNext    func(context.Context) (*Ref, error)
 	offset     Path
 	buf        []byte
 	begin, end int
 }
 
-func NewStreamReader(s cadata.Store, offset Path, getNext func(context.Context) (*Ref, error)) *StreamReader {
-	return &StreamReader{
+func NewStreamReader[Ref any](s Storage[Ref], offset Path, getNext func(context.Context) (*Ref, error)) *StreamReader[Ref] {
+	return &StreamReader[Ref]{
 		s:       s,
 		offset:  offset,
 		getNext: getNext,
@@ -25,7 +34,7 @@ func NewStreamReader(s cadata.Store, offset Path, getNext func(context.Context) 
 	}
 }
 
-func (sr *StreamReader) Peek(ctx context.Context, ent *Entry) error {
+func (sr *StreamReader[Ref]) Peek(ctx context.Context, ent *Entry) error {
 	_, err := sr.parseNext(ctx, ent)
 	if err != nil {
 		return err
@@ -33,7 +42,7 @@ func (sr *StreamReader) Peek(ctx context.Context, ent *Entry) error {
 	return nil
 }
 
-func (sr *StreamReader) Next(ctx context.Context, ent *Entry) error {
+func (sr *StreamReader[Ref]) Next(ctx context.Context, ent *Entry) error {
 	n, err := sr.parseNext(ctx, ent)
 	if err != nil {
 		return err
@@ -43,15 +52,15 @@ func (sr *StreamReader) Next(ctx context.Context, ent *Entry) error {
 	return nil
 }
 
-func (sr *StreamReader) Buffered() int {
+func (sr *StreamReader[Ref]) Buffered() int {
 	return sr.end - sr.begin
 }
 
-func (sr *StreamReader) Last() Path {
+func (sr *StreamReader[Ref]) Last() Path {
 	return sr.offset
 }
 
-func (sr *StreamReader) parseNext(ctx context.Context, ent *Entry) (int, error) {
+func (sr *StreamReader[Ref]) parseNext(ctx context.Context, ent *Entry) (int, error) {
 	if sr.end-sr.begin <= 0 {
 		ref, err := sr.getNext(ctx)
 		if err != nil {
@@ -69,7 +78,7 @@ func (sr *StreamReader) parseNext(ctx context.Context, ent *Entry) (int, error) 
 	return parseEntry(ent, sr.offset, sr.buf[sr.begin:sr.end])
 }
 
-func (sr *StreamReader) setOffset(p Path) {
+func (sr *StreamReader[Ref]) setOffset(p Path) {
 	sr.offset = append(sr.offset[:0], p...)
 }
 

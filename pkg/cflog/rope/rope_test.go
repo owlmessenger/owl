@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/stretchr/testify/require"
 )
 
@@ -13,6 +14,7 @@ const (
 )
 
 func TestBuildIterate(t *testing.T) {
+	type Ref = cadata.ID
 	s := newStore(t)
 	b := NewBuilder(s, defaultMeanSize, defaultMaxSize, nil)
 
@@ -27,7 +29,7 @@ func TestBuildIterate(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, root)
 
-	it := NewIterator(s, *root, TotalSpan())
+	it := NewIterator[Ref](s, *root, TotalSpan())
 	var ent Entry
 	for i := 0; i < N; i++ {
 		err := it.Next(ctx, &ent)

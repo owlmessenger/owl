@@ -11,8 +11,7 @@ import (
 
 // Elem is the wire format for the log
 type Elem struct {
-	Thread Path        `json:"thread,omitempty"`
-	After  []cadata.ID `json:"after,omitempty"`
+	After []cadata.ID `json:"after,omitempty"`
 
 	Author    owldag.PeerID   `json:"a"`
 	Timestamp tai64.TAI64N    `json:"ts"`
@@ -34,9 +33,6 @@ func (ev *Elem) ID() (ret cadata.ID) {
 }
 
 func (a *Elem) Lt(b *Elem) bool {
-	if len(a.Thread) > 0 || len(b.Thread) > 0 {
-		return PathCompare(a.Thread, b.Thread) < 0
-	}
 	if a.Timestamp != b.Timestamp {
 		return a.Timestamp.Before(b.Timestamp)
 	}

@@ -14,10 +14,11 @@ import (
 var ctx = context.Background()
 
 func TestWriteRead(t *testing.T) {
+	type Ref = cadata.ID
 	const N = 10000
 	s := newStore(t)
 	var refs []Ref
-	sw := NewStreamWriter(s, defaultMeanSize, defaultMaxSize, new([16]byte), func(ctx context.Context, idx Index) error {
+	sw := NewStreamWriter(s, defaultMeanSize, defaultMaxSize, new([16]byte), func(ctx context.Context, idx Index[Ref]) error {
 		refs = append(refs, idx.Ref)
 		return nil
 	})
@@ -28,9 +29,9 @@ func TestWriteRead(t *testing.T) {
 		require.NoError(t, err)
 	}
 	require.NoError(t, sw.Flush(ctx))
-	require.Greater(t, s.Len(), 2)
+	require.Greater(t, s.(writeStore).s.(*cadata.MemStore).Len(), 2)
 
-	sr := NewStreamReader(s, nil, func(context.Context) (*Ref, error) {
+	sr := NewStreamReader[Ref](s, nil, func(context.Context) (*cadata.ID, error) {
 		if len(refs) == 0 {
 			return nil, nil
 		}
@@ -66,6 +67,10 @@ func TestEntryWrite(t *testing.T) {
 	require.Equal(t, next, ent.Path)
 }
 
-func newStore(t testing.TB) *cadata.MemStore {
-	return cadata.NewMem(owldag.Hash, 1<<20)
+func newStore(t testing.TB) WriteStorage[cadata.ID] {
+	s := cadata.NewMem(owldag.Hash, 1<<20)
+	return writeStore{
+		storage: storage{s},
+		s:       s,
+	}
 }
