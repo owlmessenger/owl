@@ -2,10 +2,8 @@ package cflog
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"fmt"
 
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/brendoncarroll/go-tai64"
@@ -24,11 +22,6 @@ type (
 	Path = rope.Path
 
 	PeerID = owldag.PeerID
-)
-
-const (
-	prefixRevision = 0x00
-	prefixChildren = 0xff
 )
 
 type Operator struct {
@@ -60,19 +53,25 @@ func (o *Operator) NewEmpty(ctx context.Context, s cadata.Store) (*Root, error) 
 type EntryParams struct {
 	Author    owldag.PeerID
 	Timestamp tai64.TAI64N
+	Parent    *Ref
 	Data      json.RawMessage
 }
 
-func (o *Operator) Append(ctx context.Context, s cadata.Store, x Root, thread Path, eps []EntryParams) (*Root, error) {
+func (o *Operator) Append(ctx context.Context, s cadata.Store, x Root, thread Path, ep EntryParams) (*Root, error) {
+	return o.AppendBatch(ctx, s, x, thread, []EntryParams{ep})
+}
+
+func (o *Operator) AppendBatch(ctx context.Context, s cadata.Store, x Root, thread Path, eps []EntryParams) (*Root, error) {
 	if len(thread) > 0 {
 		panic("threads not supported")
 	}
+	// TODO: check that timestamp is increasing
 	b := o.newBuilder(s)
 	if err := rope.Copy(ctx, b, o.newIterator(s, x, rope.TotalSpan())); err != nil {
 		return nil, err
 	}
 	for _, ep := range eps {
-		data, err := json.Marshal(Elem{
+		data, err := json.Marshal(wireEntry{
 			Author: ep.Author,
 			Data:   ep.Data,
 		})
@@ -86,15 +85,13 @@ func (o *Operator) Append(ctx context.Context, s cadata.Store, x Root, thread Pa
 	return b.Finish(ctx)
 }
 
-func (o *Operator) Revise(ctx context.Context, s cadata.Store, x Root, p Path, desired Elem) (*Root, error) {
-	panic("revisions not yet supported")
-	return nil, nil
-}
-
 // Entries make up the log.
 type Entry struct {
-	Path
-	Elem
+	Path      Path
+	ID        Ref
+	Author    owldag.PeerID
+	Timestamp tai64.TAI64N
+	Data      json.RawMessage
 }
 
 func (o *Operator) Read(ctx context.Context, s cadata.Store, x Root, begin Path, buf []Entry) (int, error) {
@@ -103,17 +100,12 @@ func (o *Operator) Read(ctx context.Context, s cadata.Store, x Root, begin Path,
 	it := o.newIterator(s, x, rope.TotalSpan())
 
 	var n int
-	var ent rope.Entry
 	for n < len(buf) {
-		if err := it.Next(ctx, &ent); err != nil {
+		if err := readEntry(ctx, it, &buf[n]); err != nil {
 			if errors.Is(err, gotkv.EOS) {
 				break
 			}
-			return n, err
-		}
-		buf[n].Path = append(buf[n].Path[:0], ent.Path...)
-		if err := json.Unmarshal(ent.Value, &buf[n].Elem); err != nil {
-			return n, err
+			return 0, err
 		}
 		n++
 	}
@@ -122,54 +114,49 @@ func (o *Operator) Read(ctx context.Context, s cadata.Store, x Root, begin Path,
 
 func (o *Operator) Merge(ctx context.Context, s cadata.Store, xs []Root) (*Root, error) {
 	// TODO: determine first key in diff and use that to avoid remerging the beginning.
-	span := gotkv.TotalSpan()
-	its := make([]*gotkv.Iterator, len(xs))
+	span := rope.TotalSpan()
+	its := make([]*rope.Iterator[Ref], len(xs))
 	for i := range xs {
-		its[i] = o.gotkv.NewIterator(s, xs[i], span)
+		its[i] = o.newIterator(s, xs[i], span)
 	}
-	b := o.gotkv.NewBuilder(s)
-	if err := o.interleave(ctx, b, nil, its); err != nil {
+	b := o.newBuilder(s)
+	if err := o.interleave(ctx, b, its); err != nil {
 		return nil, err
 	}
 	return b.Finish(ctx)
 }
 
-func (o *Operator) interleave(ctx context.Context, b *gotkv.Builder, base Path, its []*gotkv.Iterator) error {
-	if len(base) > 1 {
-		panic("threads not yet supported")
-	}
+func (o *Operator) interleave(ctx context.Context, b *rope.Builder[Ref], its []*rope.Iterator[Ref]) error {
 	set := make(map[cadata.ID]struct{})
-	var h []*Elem
+	var h []*wireEntry
 	for {
-		var ent gotkv.Entry
+		var ent rope.Entry
 		for i := range its {
 			if err := its[i].Next(ctx, &ent); err != nil {
-				if errors.Is(err, gotkv.EOS) {
+				if errors.Is(err, rope.EOS) {
 					continue
 				}
 				return err
 			}
-			ev, err := parseElem(ent.Value)
+			we, err := parseWireEntry(ent.Value)
 			if err != nil {
 				return err
 			}
-			id := ev.ID()
+			id := we.ID()
 			if _, exists := set[id]; !exists {
-				h = heap.Push(h, ev, ltElem)
+				h = heap.Push(h, we, ltWireEntry)
 				set[id] = struct{}{}
 			}
 		}
 		if len(h) == 0 {
 			break
 		}
-		var next *Elem
-		next, h = heap.Pop(h, ltElem)
+		var next *wireEntry
+		next, h = heap.Pop(h, ltWireEntry)
 		delete(set, next.ID())
-		p := base.Successor()
-		if err := putElem(ctx, b, Path{}, 0, *next); err != nil {
+		if err := writeEntry(ctx, b, 0, *next); err != nil {
 			return err
 		}
-		base = p
 	}
 	return nil
 }
@@ -183,80 +170,43 @@ func (o *Operator) ValidateStep(ctx context.Context, s cadata.Getter, consult ow
 }
 
 func (o *Operator) Sync(ctx context.Context, src cadata.Getter, dst cadata.Store, x Root) error {
-	ents, err := rope.ListEntries()
+	return rope.Walk(ctx, rope.NewStorage(src), x, rope.Walker[Ref]{
+		Before: func(r Ref) bool {
+			exists, err := cadata.Exists(ctx, dst, r)
+			return err != nil || !exists
+		},
+		ForEach: func(ent rope.Entry) error {
+			return nil
+		},
+		After: func(r Ref) error {
+			return cadata.Copy(ctx, dst, src, r)
+		},
+	})
+}
+
+func readEntry(ctx context.Context, it *rope.Iterator[Ref], out *Entry) error {
+	var ent rope.Entry
+	if err := it.Next(ctx, &ent); err != nil {
+		return err
+	}
+	we, err := parseWireEntry(ent.Value)
 	if err != nil {
 		return err
 	}
-	for _, ent := range ents {
-		if x.Depth > 0 {
-
-		}
-	}
-	cadata.Copy()
-	return o.gotkv.Sync(ctx, src, dst, x, func(gotkv.Entry) error { return nil })
+	out.Path = append(out.Path[:0], ent.Path...)
+	out.Author = we.Author
+	out.Timestamp = we.Timestamp
+	out.Data = we.Data
+	return nil
 }
 
-func putElem(ctx context.Context, b *gotkv.Builder, p Path, rev uint32, ev Elem) error {
-	data, err := json.Marshal(ev)
+func writeEntry(ctx context.Context, b *rope.Builder[Ref], level uint8, x wireEntry) error {
+	data, err := json.Marshal(x)
 	if err != nil {
 		return err
 	}
 	if len(data) > MaxEntryLen {
 		return ErrEntryLen{Data: data}
 	}
-	key := appendElemKey(nil, p, rev)
-	return b.Put(ctx, key, data)
-}
-
-func appendElemKey(out []byte, p Path, rev uint32) []byte {
-	for i, n := range p {
-		if i > 0 {
-			out = append(out, prefixChildren)
-		}
-		out = appendUint64(out, n)
-	}
-	if rev > 0 {
-		out = append(out, prefixRevision)
-		out = appendUint32(out, rev)
-	}
-	return out
-}
-
-func parseElemKey(x []byte) (Path, uint32, error) {
-	var ret Path
-	if len(x) < 8 {
-		return nil, 0, fmt.Errorf("paths are >= 8 bytes")
-	}
-	ret = append(ret, binary.BigEndian.Uint64(x[:8]))
-	x = x[8:]
-	for len(x) > 0 {
-		switch x[0] {
-		case prefixChildren:
-			x = x[1:]
-			if len(x) < 8 {
-				return nil, 0, fmt.Errorf("paths are >= 8 bytes")
-			}
-			ret = append(ret, binary.BigEndian.Uint64(x[:8]))
-			x = x[8:]
-		default:
-			return nil, 0, fmt.Errorf("unknown sub-key %v", x[0])
-		}
-	}
-	return ret, 0, nil
-}
-
-func ltElem(a, b *Elem) bool {
-	return a.Lt(b)
-}
-
-func appendUint32(out []byte, x uint32) []byte {
-	var buf [4]byte
-	binary.BigEndian.PutUint32(buf[:], x)
-	return append(out, buf[:]...)
-}
-
-func appendUint64(out []byte, x uint64) []byte {
-	var buf [8]byte
-	binary.BigEndian.PutUint64(buf[:], x)
-	return append(out, buf[:]...)
+	return b.Append(ctx, level, data)
 }

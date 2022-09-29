@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/brendoncarroll/go-state/cadata"
-	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/owlmessenger/owl/pkg/owldag"
 	"github.com/stretchr/testify/require"
 )
@@ -24,7 +23,7 @@ func TestAppendRead(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
-	root, err = op.Append(ctx, s, *root, nil, []EntryParams{
+	root, err = op.AppendBatch(ctx, s, *root, nil, []EntryParams{
 		newText("one"),
 		newText("two"),
 		newText("three"),
@@ -37,8 +36,7 @@ func TestAppendRead(t *testing.T) {
 }
 
 func newLogOp(t testing.TB) Operator {
-	kvop := gotkv.NewOperator(1<<12, 1<<16)
-	return New(&kvop)
+	return New()
 }
 
 func newStore(t testing.TB) cadata.Store {

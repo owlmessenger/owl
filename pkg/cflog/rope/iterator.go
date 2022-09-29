@@ -22,9 +22,8 @@ type Iterator[Ref any] struct {
 	root Root[Ref]
 	span Span
 
-	readRoot bool
-	levels   []*StreamReader[Ref]
-	ctx      context.Context
+	levels []*StreamReader[Ref]
+	ctx    context.Context
 }
 
 func NewIterator[Ref any](s Storage[Ref], root Root[Ref], span Span) *Iterator[Ref] {
@@ -34,13 +33,28 @@ func NewIterator[Ref any](s Storage[Ref], root Root[Ref], span Span) *Iterator[R
 
 		levels: make([]*StreamReader[Ref], root.Depth+1),
 	}
+	for i := range it.levels {
+		i := i
+		if i == len(it.levels)-1 {
+			it.levels[i] = NewStreamReader(s, nil, singleRef(root.Ref))
+		} else {
+			it.levels[i] = NewStreamReader(s, nil, func(ctx context.Context) (*Ref, error) {
+				sr := it.levels[i+1]
+				idx, err := readIndex(it.ctx, sr)
+				if err != nil {
+					return nil, err
+				}
+				return &idx.Ref, nil
+			})
+		}
+	}
 	return it
 }
 
 func (it *Iterator[Ref]) Peek(ctx context.Context, ent *Entry) error {
 	defer it.setUnsetCtx(ctx)()
 	for {
-		sr := it.getReader(0)
+		sr := it.levels[0]
 		if err := sr.Peek(ctx, ent); err != nil {
 			return err
 		}
@@ -59,7 +73,7 @@ func (it *Iterator[Ref]) Peek(ctx context.Context, ent *Entry) error {
 func (it *Iterator[Ref]) Next(ctx context.Context, ent *Entry) error {
 	defer it.setUnsetCtx(ctx)()
 	for {
-		if err := it.getReader(0).Next(ctx, ent); err != nil {
+		if err := it.levels[0].Next(ctx, ent); err != nil {
 			return err
 		}
 		if cmp := it.span.Compare(ent.Path, PathCompare); cmp < 0 {
@@ -76,7 +90,7 @@ func (it *Iterator[Ref]) Seek(ctx context.Context, gteq Path) error {
 		return fmt.Errorf("cannot seek backwards")
 	}
 	var ent Entry
-	sr := it.getReader(0)
+	sr := it.levels[0]
 	for {
 		if err := sr.Peek(ctx, &ent); err != nil {
 			return err
@@ -90,38 +104,6 @@ func (it *Iterator[Ref]) Seek(ctx context.Context, gteq Path) error {
 	}
 }
 
-func (it *Iterator[Ref]) getReader(level int) *StreamReader[Ref] {
-	if level >= len(it.levels) {
-		panic(level)
-	}
-	if it.levels[level] == nil {
-		it.levels[level] = it.newReader(level)
-	}
-	return it.levels[level]
-}
-
-func (it *Iterator[Ref]) newReader(level int) *StreamReader[Ref] {
-	return NewStreamReader(it.s, nil, func(context.Context) (*Ref, error) {
-		if level+1 >= len(it.levels) {
-			if it.readRoot {
-				return nil, nil
-			} else {
-				it.readRoot = true
-				return &it.root.Ref, nil
-			}
-		}
-		sr := it.getReader(level + 1)
-		if sr == nil {
-			return nil, nil
-		}
-		idx, err := readIndex(it.ctx, sr)
-		if err != nil {
-			return nil, err
-		}
-		return &idx.Ref, nil
-	})
-}
-
 func (it *Iterator[Ref]) setUnsetCtx(ctx context.Context) func() {
 	it.ctx = ctx
 	return func() { it.ctx = nil }
@@ -129,7 +111,7 @@ func (it *Iterator[Ref]) setUnsetCtx(ctx context.Context) func() {
 
 func (it *Iterator[Ref]) syncedBelow() int {
 	for i := range it.levels {
-		if it.levels[i].Buffered() == 0 {
+		if it.levels[i].Buffered() != 0 {
 			return i
 		}
 	}

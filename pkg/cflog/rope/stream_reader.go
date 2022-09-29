@@ -4,16 +4,17 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"log"
 )
 
-func SingleIndex[Ref any](idx Index[Ref]) func(context.Context) (*Ref, error) {
+func singleRef[Ref any](ref Ref) func(context.Context) (*Ref, error) {
 	var emitted bool
 	return func(ctx context.Context) (*Ref, error) {
 		if emitted {
 			return nil, nil
 		}
 		emitted = true
-		return &idx.Ref, nil
+		return &ref, nil
 	}
 }
 
@@ -75,6 +76,9 @@ func (sr *StreamReader[Ref]) parseNext(ctx context.Context, ent *Entry) (int, er
 		}
 		sr.begin = 0
 	}
+	if sr.end-sr.begin <= 0 {
+		return 0, EOS
+	}
 	return parseEntry(ent, sr.offset, sr.buf[sr.begin:sr.end])
 }
 
@@ -127,6 +131,7 @@ func parsePath(ent *Entry, last Path, in []byte) (int, error) {
 func parseLP(in []byte) (int, []byte, error) {
 	l, n := binary.Uvarint(in)
 	if n <= 0 {
+		log.Printf("%q", in)
 		return 0, nil, errors.New("problem parsing varint")
 	}
 	out := in[n:]

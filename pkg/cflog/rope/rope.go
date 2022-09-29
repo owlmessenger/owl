@@ -47,8 +47,9 @@ func Copy[Ref any](ctx context.Context, b *Builder[Ref], it *Iterator[Ref]) erro
 	return nil
 }
 
-func ListEntries[Ref any](ctx context.Context, s Storage[Ref], offset Path, idx Index[Ref]) (ret []Entry, _ error) {
-	sr := NewStreamReader(s, offset, SingleIndex(idx))
+// ListEntries lists the entries in the node referenced by idx.
+func ListEntries[Ref any](ctx context.Context, s Storage[Ref], offset Path, ref Ref) (ret []Entry, _ error) {
+	sr := NewStreamReader(s, offset, singleRef(ref))
 	for {
 		var ent Entry
 		if err := sr.Next(ctx, &ent); err != nil {
@@ -62,8 +63,20 @@ func ListEntries[Ref any](ctx context.Context, s Storage[Ref], offset Path, idx 
 	return ret, nil
 }
 
-func Interleave[Ref any](ctx context.Context, b *Builder[Ref], its []*Iterator[Ref], lt func(a, b *Entry) bool) error {
-	panic("not implemented")
+// ListIndexes lists the indexes in the node referenced by idx.
+func ListIndexes[Ref any](ctx context.Context, s Storage[Ref], offset Path, ref Ref) (ret []Index[Ref], _ error) {
+	sr := NewStreamReader(s, offset, singleRef(ref))
+	for {
+		idx, err := readIndex(ctx, sr)
+		if err != nil {
+			if errors.Is(err, EOS) {
+				break
+			}
+			return nil, err
+		}
+		ret = append(ret, *idx)
+	}
+	return ret, nil
 }
 
 func readIndex[Ref any](ctx context.Context, sr *StreamReader[Ref]) (*Index[Ref], error) {

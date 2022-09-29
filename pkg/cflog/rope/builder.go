@@ -38,6 +38,7 @@ func (b *Builder[R]) Append(ctx context.Context, indent uint8, data []byte) erro
 }
 
 func (b *Builder[Ref]) Finish(ctx context.Context) (*Root[Ref], error) {
+	b.getWriter(0) // Ensure there will be a root
 	b.isDone = true
 	for i := range b.levels {
 		if err := b.levels[i].Flush(ctx); err != nil {

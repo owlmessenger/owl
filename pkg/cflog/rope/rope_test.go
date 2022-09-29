@@ -13,6 +13,15 @@ const (
 	defaultMaxSize  = 1 << 16
 )
 
+func TestEmpty(t *testing.T) {
+	type Ref = cadata.ID
+	s := newStore(t)
+	b := NewBuilder(s, defaultMeanSize, defaultMaxSize, nil)
+	root, err := b.Finish(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, root)
+}
+
 func TestBuildIterate(t *testing.T) {
 	type Ref = cadata.ID
 	s := newStore(t)
