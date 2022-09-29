@@ -22,6 +22,7 @@ type Iterator[Ref any] struct {
 	root Root[Ref]
 	span Span
 
+	offset Weight
 	levels []*StreamReader[Ref]
 	ctx    context.Context
 }
@@ -36,9 +37,9 @@ func NewIterator[Ref any](s Storage[Ref], root Root[Ref], span Span) *Iterator[R
 	for i := range it.levels {
 		i := i
 		if i == len(it.levels)-1 {
-			it.levels[i] = NewStreamReader(s, nil, singleRef(root.Ref))
+			it.levels[i] = NewStreamReader(s, singleRef(root.Ref))
 		} else {
-			it.levels[i] = NewStreamReader(s, nil, func(ctx context.Context) (*Ref, error) {
+			it.levels[i] = NewStreamReader(s, func(ctx context.Context) (*Ref, error) {
 				sr := it.levels[i+1]
 				idx, err := readIndex(it.ctx, sr)
 				if err != nil {
@@ -53,55 +54,42 @@ func NewIterator[Ref any](s Storage[Ref], root Root[Ref], span Span) *Iterator[R
 
 func (it *Iterator[Ref]) Peek(ctx context.Context, ent *Entry) error {
 	defer it.setUnsetCtx(ctx)()
-	for {
-		sr := it.levels[0]
-		if err := sr.Peek(ctx, ent); err != nil {
+	// seek if necessary
+	if !it.span.Contains(Path(it.offset), PathCompare) {
+		if err := it.Seek(ctx, Path(it.offset)); err != nil {
 			return err
 		}
-		if cmp := it.span.Compare(ent.Path, PathCompare); cmp < 0 {
-			return EOS
-		} else if cmp == 0 {
-			return nil
-		} else {
-			if err := sr.Next(ctx, ent); err != nil {
-				return err
-			}
-		}
 	}
+	// read one
+	var se StreamEntry
+	if err := it.levels[0].Peek(ctx, &se); err != nil {
+		return err
+	}
+	ent.set(Path(it.offset), se.Value)
+	return nil
 }
 
 func (it *Iterator[Ref]) Next(ctx context.Context, ent *Entry) error {
 	defer it.setUnsetCtx(ctx)()
-	for {
-		if err := it.levels[0].Next(ctx, ent); err != nil {
+	// seek if necessary
+	if !it.span.Contains(Path(it.offset), PathCompare) {
+		if err := it.Seek(ctx, Path(it.offset)); err != nil {
 			return err
 		}
-		if cmp := it.span.Compare(ent.Path, PathCompare); cmp < 0 {
-			return EOS
-		} else if cmp == 0 {
-			return nil
-		}
 	}
+	// read one
+	var se StreamEntry
+	if err := it.levels[0].Next(ctx, &se); err != nil {
+		return err
+	}
+	ent.set(Path(it.offset), se.Value)
+	it.offset.Add(it.offset, se.Weight)
+	return nil
 }
 
 func (it *Iterator[Ref]) Seek(ctx context.Context, gteq Path) error {
 	defer it.setUnsetCtx(ctx)()
-	if cmp := PathCompare(gteq, it.levels[0].Last()); cmp <= 0 {
-		return fmt.Errorf("cannot seek backwards")
-	}
-	var ent Entry
-	sr := it.levels[0]
-	for {
-		if err := sr.Peek(ctx, &ent); err != nil {
-			return err
-		}
-		if PathCompare(ent.Path, gteq) >= 0 {
-			return nil
-		}
-		if err := sr.Next(ctx, &ent); err != nil {
-			return err
-		}
-	}
+	panic("seek not yet supported")
 }
 
 func (it *Iterator[Ref]) setUnsetCtx(ctx context.Context) func() {
@@ -118,9 +106,10 @@ func (it *Iterator[Ref]) syncedBelow() int {
 	return len(it.levels)
 }
 
-func (it *Iterator[Ref]) readAt(ctx context.Context, level int, ent *Entry) error {
-	if level > it.syncedBelow() {
-		panic(fmt.Sprintf("rope.Iterator: read from wrong level %d", level))
+// readAt entries have the weight instead of the absolute path.
+func (it *Iterator[Ref]) readAt(ctx context.Context, level int, ent *StreamEntry) error {
+	if it.syncedBelow() < level {
+		panic(fmt.Sprintf("rope.Iterator: read from wrong level %d. synced below %d", level, it.syncedBelow()))
 	}
 	return it.levels[level].Next(ctx, ent)
 }

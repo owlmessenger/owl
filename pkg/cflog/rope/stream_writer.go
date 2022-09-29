@@ -18,8 +18,8 @@ type StreamWriter[Ref any] struct {
 	cb       IndexCallback[Ref]
 	seed     *[16]byte
 
-	last Path
-	buf  []byte
+	weight Weight
+	buf    []byte
 }
 
 func NewStreamWriter[Ref any](s WriteStorage[Ref], meanSize, maxSize int, seed *[16]byte, cb IndexCallback[Ref]) *StreamWriter[Ref] {
@@ -43,11 +43,8 @@ func NewStreamWriter[Ref any](s WriteStorage[Ref], meanSize, maxSize int, seed *
 	}
 }
 
-func (sw *StreamWriter[Ref]) Append(ctx context.Context, p Path, data []byte) error {
-	if len(sw.last) != 0 && PathCompare(p, sw.last) <= 0 {
-		return fmt.Errorf("%v <= %v", p, sw.last)
-	}
-	l := entryEncodedLen(sw.last, p, data)
+func (sw *StreamWriter[Ref]) Append(ctx context.Context, se StreamEntry) error {
+	l := entryEncodedLen(se.Weight, se.Value)
 	if l > sw.maxSize {
 		return fmt.Errorf("data exceeds max node size. %d > %d", l, sw.maxSize)
 	}
@@ -56,9 +53,9 @@ func (sw *StreamWriter[Ref]) Append(ctx context.Context, p Path, data []byte) er
 			return err
 		}
 	}
-	sw.buf = appendEntry(sw.buf, sw.last, p, data)
+	sw.buf = appendEntry(sw.buf, se)
 	entryData := sw.buf[len(sw.buf)-l:]
-	sw.setLast(p)
+	sw.weight.Add(sw.weight, se.Weight)
 	if sw.isSplitPoint(entryData) {
 		return sw.Flush(ctx)
 	}
@@ -70,10 +67,13 @@ func (sw *StreamWriter[Ref]) Flush(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	sw.buf = sw.buf[:0]
+	defer func() {
+		sw.buf = sw.buf[:0]
+		sw.weight = sw.weight[:0]
+	}()
 	return sw.cb(ctx, Index[Ref]{
-		Ref: ref,
-		Sum: sw.last,
+		Ref:    ref,
+		Weight: sw.weight,
 	})
 }
 
@@ -81,56 +81,47 @@ func (sw *StreamWriter[Ref]) Buffered() int {
 	return len(sw.buf)
 }
 
-func (sw *StreamWriter[Ref]) Last() Path {
-	return sw.last
-}
-
 func (sw *StreamWriter[Ref]) isSplitPoint(entryData []byte) bool {
-	r := hash64(entryData, sw.seed)
+	r := hash64(sw.seed, entryData)
 	prob := math.MaxUint64 / uint64(sw.meanSize) * uint64(len(entryData))
 	return r < prob
 }
 
-func (sw *StreamWriter[Ref]) setLast(p Path) {
-	sw.last = append(sw.last[:0], p...)
-}
-
 // appendEntry appends an entry to out
 // varint | 1 byte indent | variable length data |
-func appendEntry(out []byte, prev, p Path, data []byte) []byte {
+func appendEntry(out []byte, se StreamEntry) []byte {
 	out = appendVarint(out,
-		uint64(pathEncodedLen(prev, p))+
-			uint64(lpEncodedLen(len(data))),
+		uint64(weightEncodedLen(se.Weight))+
+			uint64(lpEncodedLen(len(se.Value))),
 	)
-	out = appendPath(out, prev, p)
-	out = appendLP(out, data)
+	out = appendWeight(out, se.Weight)
+	out = appendLP(out, se.Value)
 	return out
 }
 
 // entryEncodedLen is the number of bytes appendEntry will append.
-func entryEncodedLen(last, p Path, data []byte) int {
-	return lpEncodedLen(pathEncodedLen(last, p) + lpEncodedLen(len(data)))
+func entryEncodedLen(w Weight, data []byte) int {
+	return lpEncodedLen(weightEncodedLen(w) + lpEncodedLen(len(data)))
 }
 
-func pathEncodedLen(prev, next Path) (ret int) {
-	delta := PathSub(next, prev)
+func weightEncodedLen(w Weight) (ret int) {
+	// TODO: compress leading 0s
 	var total int
-	for i := range delta {
-		total += varintLen(delta[i])
+	for i := range w {
+		total += varintLen(w[i])
 	}
 	return lpEncodedLen(total)
 }
 
-func appendPath(out []byte, prev, next Path) []byte {
-	delta := PathSub(next, prev)
+func appendWeight(out []byte, w Weight) []byte {
 	var total int
-	for i := range delta {
-		total += varintLen(delta[i])
+	for i := range w {
+		total += varintLen(w[i])
 	}
 
 	out = appendVarint(out, uint64(total))
-	for i := range delta {
-		out = appendVarint(out, delta[i])
+	for i := range w {
+		out = appendVarint(out, w[i])
 	}
 	return out
 }
@@ -162,7 +153,7 @@ func varintLen(x uint64) int {
 	return binary.PutUvarint(buf[:], x)
 }
 
-func hash64(data []byte, key *[16]byte) uint64 {
+func hash64(key *[16]byte, data []byte) uint64 {
 	en := binary.LittleEndian
 	k0 := en.Uint64(key[:8])
 	k1 := en.Uint64(key[8:])

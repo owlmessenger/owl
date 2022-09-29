@@ -5,13 +5,14 @@ import (
 	"fmt"
 )
 
+const MaxIndent = 64
+
 type Builder[Ref any] struct {
 	s                 WriteStorage[Ref]
 	meanSize, maxSize int
 	seed              *[16]byte
 
 	levels []*StreamWriter[Ref]
-	last   Path
 	isDone bool
 	root   *Root[Ref]
 }
@@ -32,15 +33,15 @@ func (b *Builder[R]) Append(ctx context.Context, indent uint8, data []byte) erro
 	if indent > 0 {
 		panic(indent) // TODO: support paths
 	}
-	var next Path
-	if len(b.last) == 0 {
-		next = Path{0}
-	} else {
-		next = b.last.Next(indent)
+	if indent > MaxIndent {
+		panic(indent)
 	}
-	return b.writeAt(ctx, 0, Entry{
-		Path:  next,
-		Value: data,
+	var buf [MaxIndent]uint64
+	w := buf[:indent+1]
+	w[indent]++
+	return b.writeAt(ctx, 0, StreamEntry{
+		Weight: w,
+		Value:  data,
 	})
 }
 
@@ -66,14 +67,17 @@ func (b *Builder[Ref]) newWriter(level int) *StreamWriter[Ref] {
 	return NewStreamWriter(b.s, b.meanSize, b.maxSize, b.seed, func(ctx context.Context, idx Index[Ref]) error {
 		if b.isDone && level == len(b.levels)-1 {
 			b.root = &Root[Ref]{
-				Ref:   idx.Ref,
-				Sum:   idx.Sum,
-				Depth: uint8(level),
+				Ref:    idx.Ref,
+				Weight: idx.Weight,
+				Depth:  uint8(level),
 			}
 			return nil
 		}
 		sw2 := b.getWriter(level + 1)
-		return sw2.Append(ctx, idx.Sum, b.s.MarshalRef(idx.Ref))
+		return sw2.Append(ctx, StreamEntry{
+			Weight: idx.Weight,
+			Value:  b.s.MarshalRef(idx.Ref),
+		})
 	})
 }
 
@@ -88,13 +92,12 @@ func (b *Builder[Ref]) syncedBelow() int {
 	// return len(b.levels)
 }
 
-func (b *Builder[Ref]) writeAt(ctx context.Context, level int, ent Entry) error {
+func (b *Builder[Ref]) writeAt(ctx context.Context, level int, ent StreamEntry) error {
 	if b.syncedBelow() < level {
 		panic(fmt.Sprintf("write to builder at wrong level %d", level))
 	}
-	if err := b.getWriter(level).Append(ctx, ent.Path, ent.Value); err != nil {
+	if err := b.getWriter(level).Append(ctx, ent); err != nil {
 		return err
 	}
-	b.last = append(b.last[:0], ent.Path...)
 	return nil
 }

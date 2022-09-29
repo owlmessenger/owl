@@ -23,13 +23,13 @@ func TestWriteRead(t *testing.T) {
 	var v []byte
 	for i := 0; i < N; i++ {
 		v = fmt.Appendf(v[:0], "hello world %d", i)
-		err := sw.Append(ctx, Path{uint64(i)}, v)
+		err := sw.Append(ctx, StreamEntry{Weight: Weight{1}, Value: v})
 		require.NoError(t, err)
 	}
 	require.NoError(t, sw.Flush(ctx))
 	require.Greater(t, s.(writeStore).s.(*cadata.MemStore).Len(), 2)
 
-	sr := NewStreamReader[Ref](s, nil, func(context.Context) (*cadata.ID, error) {
+	sr := NewStreamReader[Ref](s, func(context.Context) (*cadata.ID, error) {
 		if len(refs) == 0 {
 			return nil, nil
 		}
@@ -38,11 +38,11 @@ func TestWriteRead(t *testing.T) {
 		return &r, nil
 	})
 
-	var ent Entry
+	var ent StreamEntry
 	for i := 0; i < N; i++ {
 		expectV := []byte("hello world " + strconv.Itoa(i))
 		require.NoError(t, sr.Next(ctx, &ent))
-		require.Equal(t, Path{uint64(i)}, ent.Path)
+		require.Equal(t, Weight{1}, ent.Weight)
 		require.Equal(t, expectV, ent.Value)
 	}
 	require.ErrorIs(t, sr.Next(ctx, &ent), EOS)
@@ -51,16 +51,16 @@ func TestWriteRead(t *testing.T) {
 func TestEntryWrite(t *testing.T) {
 	var out []byte
 
-	prev := Path{1}
-	next := Path{2}
+	w := Weight{3}
 	data := []byte("hello world")
-	l := entryEncodedLen(prev, next, data)
-	out = appendEntry(out, prev, next, data)
+	l := entryEncodedLen(w, data)
+	out = appendEntry(out, StreamEntry{Weight: w, Value: data})
 	require.Len(t, out, l)
 
-	var ent Entry
-	l2, err := parseEntry(&ent, prev, out)
+	var ent StreamEntry
+	l2, err := parseEntry(&ent, out)
 	require.NoError(t, err)
 	require.Equal(t, l, l2)
-	require.Equal(t, next, ent.Path)
+	require.Equal(t, w, ent.Weight)
+	require.Equal(t, data, ent.Value)
 }

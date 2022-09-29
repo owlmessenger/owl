@@ -1,6 +1,9 @@
 package rope
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 type Walker[Ref any] struct {
 	// If Before returns false, the descendents are skipped.
@@ -12,34 +15,33 @@ type Walker[Ref any] struct {
 }
 
 func Walk[Ref any](ctx context.Context, s Storage[Ref], root Root[Ref], w Walker[Ref]) error {
-	return walk(ctx, s, root, w, nil)
+	return walk(ctx, s, w, root.Ref, root.Depth, Weight{0})
 }
 
-func walk[Ref any](ctx context.Context, s Storage[Ref], root Root[Ref], w Walker[Ref], offset Path) error {
-	if root.Depth > 0 {
-		if !w.Before(root.Ref) {
+func walk[Ref any](ctx context.Context, s Storage[Ref], w Walker[Ref], ref Ref, depth uint8, offset Weight) error {
+	if depth > 0 {
+		if !w.Before(ref) {
 			return nil
 		}
-		idxs, err := ListIndexes(ctx, s, offset, root.Ref)
+		idxs, err := ListIndexes(ctx, s, ref)
 		if err != nil {
 			return err
 		}
+		if len(idxs) == 0 {
+			return fmt.Errorf("index node without entries")
+		}
+		offsets := make([]Weight, len(idxs))
+		offsets[0] = offset
 		for i, idx := range idxs {
-			var offset Path
-			if i > 0 {
-				offset = idxs[i-1].Sum
+			if i < len(idxs)-1 {
+				offsets[i+1].Add(offsets[i], idx.Weight)
 			}
-			root2 := Root[Ref]{
-				Depth: root.Depth - 1,
-				Ref:   idx.Ref,
-				Sum:   idx.Sum,
-			}
-			if err := walk(ctx, s, root2, w, offset); err != nil {
+			if err := walk(ctx, s, w, idx.Ref, depth-1, offsets[i]); err != nil {
 				return err
 			}
 		}
 	} else {
-		ents, err := ListEntries(ctx, s, offset, root.Ref)
+		ents, err := ListEntries(ctx, s, offset, ref)
 		if err != nil {
 			return err
 		}
@@ -49,5 +51,5 @@ func walk[Ref any](ctx context.Context, s Storage[Ref], root Root[Ref], w Walker
 			}
 		}
 	}
-	return w.After(root.Ref)
+	return w.After(ref)
 }

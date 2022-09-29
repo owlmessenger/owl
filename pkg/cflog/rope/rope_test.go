@@ -26,7 +26,7 @@ func TestEmpty(t *testing.T) {
 
 func TestBuildIterate(t *testing.T) {
 	s := newStore(t)
-	b := NewBuilder(s, defaultMeanSize, defaultMaxSize, nil)
+	b := newTestBuilder(t, s)
 
 	const N = 10000
 	var v []byte
@@ -38,12 +38,15 @@ func TestBuildIterate(t *testing.T) {
 	root, err := b.Finish(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, root)
+	require.Equal(t, root.Weight, Weight{N})
+	t.Log("depth", root.Depth)
 
 	it := NewIterator[Ref](s, *root, TotalSpan())
 	var ent Entry
 	for i := 0; i < N; i++ {
 		err := it.Next(ctx, &ent)
 		require.NoError(t, err, i)
+		require.Equal(t, Path{uint64(i)}, ent.Path)
 	}
 	require.ErrorIs(t, it.Next(ctx, &ent), EOS)
 }

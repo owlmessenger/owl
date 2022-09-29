@@ -18,38 +18,37 @@ func singleRef[Ref any](ref Ref) func(context.Context) (*Ref, error) {
 	}
 }
 
+type StreamEntry struct {
+	Value  []byte
+	Weight Weight
+}
+
 type StreamReader[Ref any] struct {
 	s          Storage[Ref]
 	getNext    func(context.Context) (*Ref, error)
-	offset     Path
 	buf        []byte
 	begin, end int
 }
 
-func NewStreamReader[Ref any](s Storage[Ref], offset Path, getNext func(context.Context) (*Ref, error)) *StreamReader[Ref] {
+func NewStreamReader[Ref any](s Storage[Ref], getNext func(context.Context) (*Ref, error)) *StreamReader[Ref] {
 	return &StreamReader[Ref]{
 		s:       s,
-		offset:  offset,
 		getNext: getNext,
 		buf:     make([]byte, s.MaxSize()),
 	}
 }
 
-func (sr *StreamReader[Ref]) Peek(ctx context.Context, ent *Entry) error {
+func (sr *StreamReader[Ref]) Peek(ctx context.Context, ent *StreamEntry) error {
 	_, err := sr.parseNext(ctx, ent)
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }
 
-func (sr *StreamReader[Ref]) Next(ctx context.Context, ent *Entry) error {
+func (sr *StreamReader[Ref]) Next(ctx context.Context, ent *StreamEntry) error {
 	n, err := sr.parseNext(ctx, ent)
 	if err != nil {
 		return err
 	}
 	sr.begin += n
-	sr.setOffset(ent.Path)
 	return nil
 }
 
@@ -57,11 +56,7 @@ func (sr *StreamReader[Ref]) Buffered() int {
 	return sr.end - sr.begin
 }
 
-func (sr *StreamReader[Ref]) Last() Path {
-	return sr.offset
-}
-
-func (sr *StreamReader[Ref]) parseNext(ctx context.Context, ent *Entry) (int, error) {
+func (sr *StreamReader[Ref]) parseNext(ctx context.Context, ent *StreamEntry) (int, error) {
 	if sr.end-sr.begin <= 0 {
 		ref, err := sr.getNext(ctx)
 		if err != nil {
@@ -79,14 +74,10 @@ func (sr *StreamReader[Ref]) parseNext(ctx context.Context, ent *Entry) (int, er
 	if sr.end-sr.begin <= 0 {
 		return 0, EOS
 	}
-	return parseEntry(ent, sr.offset, sr.buf[sr.begin:sr.end])
+	return parseEntry(ent, sr.buf[sr.begin:sr.end])
 }
 
-func (sr *StreamReader[Ref]) setOffset(p Path) {
-	sr.offset = append(sr.offset[:0], p...)
-}
-
-func parseEntry(e *Entry, last Path, in []byte) (int, error) {
+func parseEntry(out *StreamEntry, in []byte) (int, error) {
 	n, data, err := parseLP(in)
 	if err != nil {
 		return 0, err
@@ -94,7 +85,7 @@ func parseEntry(e *Entry, last Path, in []byte) (int, error) {
 	retN := n
 
 	// key
-	n, err = parsePath(e, last, data)
+	n, err = parseWeight(&out.Weight, data)
 	if err != nil {
 		return 0, err
 	}
@@ -105,26 +96,24 @@ func parseEntry(e *Entry, last Path, in []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	e.Value = append(e.Value[:0], value...)
-
+	out.Value = append(out.Value[:0], value...)
 	return retN, nil
 }
 
-func parsePath(ent *Entry, last Path, in []byte) (int, error) {
+func parseWeight(out *Weight, in []byte) (int, error) {
 	n, data, err := parseLP(in)
 	if err != nil {
 		return 0, err
 	}
-	var delta Path
+	*out = (*out)[:0]
 	for len(data) > 0 {
 		n, y, err := parseVarint(data)
 		if err != nil {
 			return 0, err
 		}
-		delta = append(delta, y)
+		*out = append(*out, y)
 		data = data[n:]
 	}
-	ent.Path = PathAdd(last, delta)
 	return n, nil
 }
 
