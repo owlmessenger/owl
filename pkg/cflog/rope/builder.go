@@ -11,6 +11,7 @@ type Builder[Ref any] struct {
 	seed              *[16]byte
 
 	levels []*StreamWriter[Ref]
+	last   Path
 	isDone bool
 	root   *Root[Ref]
 }
@@ -32,9 +33,12 @@ func (b *Builder[R]) Append(ctx context.Context, indent uint8, data []byte) erro
 		panic(indent) // TODO: support paths
 	}
 	w := b.getWriter(0)
-	last := w.Last()
-	next := last.Next(indent)
-	return w.Append(ctx, next, data)
+	next := b.last.Next(indent)
+	if err := w.Append(ctx, next, data); err != nil {
+		return err
+	}
+	b.last = next
+	return nil
 }
 
 func (b *Builder[Ref]) Finish(ctx context.Context) (*Root[Ref], error) {

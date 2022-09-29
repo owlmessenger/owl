@@ -92,6 +92,7 @@ type Entry struct {
 	Author    owldag.PeerID
 	Timestamp tai64.TAI64N
 	Data      json.RawMessage
+	IsThread  bool
 }
 
 func (o *Operator) Read(ctx context.Context, s cadata.Store, x Root, begin Path, buf []Entry) (int, error) {
@@ -197,6 +198,7 @@ func readEntry(ctx context.Context, it *rope.Iterator[Ref], out *Entry) error {
 	out.Author = we.Author
 	out.Timestamp = we.Timestamp
 	out.Data = we.Data
+	out.ID = we.ID()
 	return nil
 }
 

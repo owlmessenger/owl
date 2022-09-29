@@ -11,8 +11,7 @@ import (
 
 // wireEntry is the wire format for the log
 type wireEntry struct {
-	After  []cadata.ID `json:"after,omitempty"`
-	Parent *cadata.ID  `json:"parent,omitempty"`
+	Parent *cadata.ID `json:"parent,omitempty"`
 
 	Author    owldag.PeerID   `json:"a"`
 	Timestamp tai64.TAI64N    `json:"ts"`
