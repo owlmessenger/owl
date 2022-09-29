@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestWeight(t *testing.T) {
+func TestWeightAdd(t *testing.T) {
 	tcs := []struct {
 		L, R, Y Weight
 	}{
