@@ -6,7 +6,6 @@ import (
 
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/brendoncarroll/go-tai64"
-	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/owlmessenger/owl/pkg/cflog"
 	"github.com/owlmessenger/owl/pkg/owldag"
 )
@@ -21,8 +20,7 @@ type Operator struct {
 }
 
 func New() Operator {
-	kvop := gotkv.NewOperator(1<<12, 1<<16)
-	return Operator{cflog: cflog.New(&kvop)}
+	return Operator{cflog: cflog.New()}
 }
 
 func (o *Operator) NewEmpty(ctx context.Context, s cadata.Store) (*State, error) {
@@ -38,15 +36,13 @@ type MessageParams struct {
 }
 
 func (o *Operator) Append(ctx context.Context, s cadata.Store, x State, mp MessageParams) (*State, error) {
-	return o.cflog.Append(ctx, s, x, nil, []cflog.EntryParams{
-		{
-			Author: mp.Author,
-			Data: jsonMarshal(entryPayload{
-				Type: mp.Type,
-				Body: mp.Body,
-			}),
-			Timestamp: mp.Timestamp,
-		},
+	return o.cflog.Append(ctx, s, x, nil, cflog.EntryParams{
+		Author: mp.Author,
+		Data: jsonMarshal(entryPayload{
+			Type: mp.Type,
+			Body: mp.Body,
+		}),
+		Timestamp: mp.Timestamp,
 	})
 }
 
@@ -64,10 +60,10 @@ func (o *Operator) Read(ctx context.Context, s cadata.Store, x State, begin Path
 		}
 		buf[i] = Message{
 			Path: e.Path,
+			ID:   e.ID,
 
 			Author:    e.Author,
 			Timestamp: e.Timestamp,
-			After:     e.After,
 
 			Type: payload.Type,
 			Body: payload.Body,
@@ -94,9 +90,9 @@ func (o *Operator) Sync(ctx context.Context, src cadata.Getter, dst cadata.Store
 
 type Message struct {
 	Path Path
+	ID   owldag.Ref
 
 	Author    owldag.PeerID
-	After     []cadata.ID
 	Timestamp tai64.TAI64N
 
 	Type string
