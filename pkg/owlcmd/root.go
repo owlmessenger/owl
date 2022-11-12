@@ -9,13 +9,13 @@ import (
 	"github.com/inet256/diet256"
 	"github.com/inet256/inet256/client/go_client/inet256client"
 	"github.com/inet256/inet256/pkg/inet256"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"golang.org/x/exp/slog"
 
 	"github.com/owlmessenger/owl/pkg/owl"
 )
 
-var ctx = logctx.WithFmtLogger(context.Background(), logrus.StandardLogger())
+var ctx = logctx.NewContext(context.Background(), slog.New(slog.NewTextHandler(os.Stderr)))
 
 func NewRootCmd() *cobra.Command {
 	var s owl.API

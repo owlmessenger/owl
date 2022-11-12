@@ -14,7 +14,6 @@ import (
 	"github.com/inet256/inet256/pkg/inet256"
 	"github.com/inet256/inet256/pkg/p2padapter"
 	"github.com/jmoiron/sqlx"
-	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/owlmessenger/owl/pkg/dbutil"
@@ -41,7 +40,7 @@ type personaServer struct {
 }
 
 func newPersonaServer(db *sqlx.DB, inetsrv inet256.Service, personaID int, members []PeerID) *personaServer {
-	ctx := logctx.WithFmtLogger(context.Background(), logrus.StandardLogger())
+	ctx := context.Background()
 	ctx, cf := context.WithCancel(ctx)
 	ps := &personaServer{
 		db:      db,
