@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/brendoncarroll/go-p2p"
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/gotvc/got/pkg/gotkv/kvstreams"
@@ -23,13 +22,10 @@ type Head struct {
 }
 
 func NewHead(privKey PrivateKey, ref Ref) (Head, error) {
-	sig, err := p2p.Sign(nil, privKey, headPurpose, ref[:])
-	if err != nil {
-		return Head{}, err
-	}
+	sig := inet256.Sign(nil, privKey, headPurpose, ref[:])
 	return Head{
 		Ref:       ref,
-		PublicKey: inet256.MarshalPublicKey(privKey.Public()),
+		PublicKey: inet256.MarshalPublicKey(nil, privKey.Public()),
 		Sig:       sig,
 	}, nil
 }
@@ -39,7 +35,10 @@ func (h Head) Verify() error {
 	if err != nil {
 		return err
 	}
-	return p2p.Verify(pubKey, headPurpose, h.Ref[:], h.Sig)
+	if !inet256.Verify(pubKey, headPurpose, h.Ref[:], h.Sig) {
+		return errors.New("invalid signature")
+	}
+	return nil
 }
 
 func (h Head) GetPeerID() (PeerID, error) {
@@ -73,7 +72,11 @@ func getHead(ctx context.Context, kvop *gotkv.Operator, s cadata.Store, x gotkv.
 		}
 		return nil, err
 	}
-	actualID := inet256.NewAddr(h.PublicKey)
+	pubKey, err := inet256.ParsePublicKey(h.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	actualID := inet256.NewAddr(pubKey)
 	if actualID != id {
 		return nil, errors.New("owldag: bad head")
 	}

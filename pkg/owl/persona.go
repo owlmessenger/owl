@@ -2,12 +2,11 @@ package owl
 
 import (
 	"context"
-	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/x509"
 
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/inet256/inet256/pkg/inet256"
+	"github.com/inet256/inet256/pkg/serde"
 	"github.com/jmoiron/sqlx"
 
 	"github.com/owlmessenger/owl/pkg/dbutil"
@@ -19,7 +18,7 @@ func (s *Server) CreatePersona(ctx context.Context, req *CreatePersonaReq) error
 	if err := s.Init(ctx); err != nil {
 		return err
 	}
-	_, privKey, err := ed25519.GenerateKey(rand.Reader)
+	_, privKey, err := inet256.GenerateKey(rand.Reader)
 	if err != nil {
 		return err
 	}
@@ -166,13 +165,10 @@ func (s *Server) addPrivateKey(tx *sqlx.Tx, personaID int, privKey inet256.Priva
 	id := inet256.NewAddr(pubKey)
 	var pubKeyData []byte
 	if pubKey != nil {
-		pubKeyData = inet256.MarshalPublicKey(pubKey)
+		pubKeyData = inet256.MarshalPublicKey(nil, pubKey)
 	}
-	privKeyData, err := x509.MarshalPKCS8PrivateKey(privKey)
-	if err != nil {
-		return err
-	}
-	_, err = tx.Exec(`INSERT INTO persona_keys (persona_id, id, public_key, private_key) VALUES (?, ?, ?, ?)`, personaID, id[:], pubKeyData, privKeyData)
+	privKeyData := serde.MarshalPrivateKey(privKey)
+	_, err := tx.Exec(`INSERT INTO persona_keys (persona_id, id, public_key, private_key) VALUES (?, ?, ?, ?)`, personaID, id[:], pubKeyData, privKeyData)
 	return err
 }
 

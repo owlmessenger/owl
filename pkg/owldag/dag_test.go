@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/brendoncarroll/go-p2p/p2ptest"
 	"github.com/brendoncarroll/go-state/cadata"
+	"github.com/inet256/inet256/pkg/inet256test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,7 +23,7 @@ func TestInit(t *testing.T) {
 
 func TestModify(t *testing.T) {
 	dag := newTestDAG(t)
-	privKey := p2ptest.NewTestKey(t, 0)
+	privKey := inet256test.NewPrivateKey(t, 0)
 	for _, n := range []uint64{2, 3, 5, 7} {
 		err := dag.Modify(ctx, privKey, func(s cadata.Store, x uint64) (*uint64, error) {
 			y := x * n

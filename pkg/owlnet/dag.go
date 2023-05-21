@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/brendoncarroll/go-p2p"
+	"github.com/inet256/inet256/pkg/inet256"
 	"github.com/owlmessenger/owl/pkg/owldag"
 	"github.com/owlmessenger/owl/pkg/slices2"
 	"google.golang.org/grpc/codes"
@@ -56,7 +57,7 @@ type LocalDAGInfo struct {
 }
 
 type DAGClient struct {
-	swarm     p2p.SecureAskSwarm[PeerID]
+	swarm     p2p.SecureAskSwarm[PeerID, inet256.PublicKey]
 	newHandle func(PeerID, uint32) Handle
 }
 

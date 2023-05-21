@@ -17,7 +17,7 @@ import (
 
 type (
 	PeerID = owldag.PeerID
-	Swarm  = p2p.SecureAskSwarm[PeerID]
+	Swarm  = p2p.SecureAskSwarm[PeerID, inet256.PublicKey]
 )
 
 const (
@@ -29,9 +29,9 @@ type Node struct {
 	swarm Swarm
 
 	secret        *[32]byte
-	mux           p2pmux.SecureAskMux[PeerID, string]
-	blobPullSwarm p2p.SecureAskSwarm[PeerID]
-	dagSwarm      p2p.SecureAskSwarm[PeerID]
+	mux           p2pmux.SecureAskMux[PeerID, string, inet256.PublicKey]
+	blobPullSwarm p2p.SecureAskSwarm[PeerID, inet256.PublicKey]
+	dagSwarm      p2p.SecureAskSwarm[PeerID, inet256.PublicKey]
 }
 
 func New(swarm Swarm) *Node {
@@ -95,7 +95,7 @@ type AskHandler interface {
 	HandleAsk(ctx context.Context, resp []byte, req p2p.Message[inet256.ID]) int
 }
 
-func ServeAsks(ctx context.Context, asker p2p.Asker[inet256.ID], h AskHandler) error {
+func ServeAsks(ctx context.Context, asker p2p.AskServer[inet256.ID], h AskHandler) error {
 	for {
 		if err := asker.ServeAsk(ctx, h.HandleAsk); err != nil {
 			return err

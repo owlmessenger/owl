@@ -7,15 +7,20 @@ import (
 
 	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/inet256/diet256"
-	"github.com/inet256/inet256/client/go_client/inet256client"
+	"github.com/inet256/inet256/client/go/inet256client"
 	"github.com/inet256/inet256/pkg/inet256"
 	"github.com/spf13/cobra"
-	"golang.org/x/exp/slog"
+	"go.uber.org/zap"
 
 	"github.com/owlmessenger/owl/pkg/owl"
 )
 
-var ctx = logctx.NewContext(context.Background(), slog.New(slog.NewTextHandler(os.Stderr)))
+var ctx = func() context.Context {
+	ctx := context.Background()
+	l, _ := zap.NewProduction()
+	ctx = logctx.NewContext(ctx, l)
+	return ctx
+}()
 
 func NewRootCmd() *cobra.Command {
 	var s owl.API

@@ -3,7 +3,7 @@ package owl_test
 import (
 	"testing"
 
-	"github.com/inet256/inet256/client/go_client/inet256client"
+	"github.com/inet256/inet256/client/go/inet256client"
 	"github.com/owlmessenger/owl/pkg/dbutil"
 	"github.com/owlmessenger/owl/pkg/owl"
 	"github.com/owlmessenger/owl/pkg/owltest"

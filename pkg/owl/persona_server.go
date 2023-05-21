@@ -2,8 +2,6 @@ package owl
 
 import (
 	"context"
-	"crypto"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"sync"
@@ -13,6 +11,7 @@ import (
 	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/inet256/inet256/pkg/inet256"
 	"github.com/inet256/inet256/pkg/p2padapter"
+	"github.com/inet256/inet256/pkg/serde"
 	"github.com/jmoiron/sqlx"
 	"golang.org/x/sync/errgroup"
 
@@ -343,11 +342,11 @@ func (s *personaServer) getPrivateKey(ctx context.Context, localID PeerID) (inet
 	if err := s.db.GetContext(ctx, &privKeyData, `SELECT private_key FROM persona_keys WHERE persona_id = ? AND id = ?`, s.id, localID[:]); err != nil {
 		return nil, err
 	}
-	privateKey, err := x509.ParsePKCS8PrivateKey(privKeyData)
+	privateKey, err := serde.ParsePrivateKey(privKeyData)
 	if err != nil {
 		return nil, err
 	}
-	return privateKey.(crypto.Signer), nil
+	return privateKey, nil
 }
 
 func (s *personaServer) getDirectoryVol(ctx context.Context) (int, error) {

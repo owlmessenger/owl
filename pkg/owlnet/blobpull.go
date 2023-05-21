@@ -48,7 +48,7 @@ func (s *BlobPullServer) HandleAsk(ctx context.Context, resp []byte, msg p2p.Mes
 }
 
 type BlobPullClient struct {
-	swarm p2p.SecureAskSwarm[PeerID]
+	swarm p2p.SecureAskSwarm[PeerID, inet256.PublicKey]
 }
 
 func (c BlobPullClient) Pull(ctx context.Context, dst PeerID, h Handle, id cadata.ID, buf []byte) (int, error) {
