@@ -10,7 +10,6 @@ import (
 	"io"
 
 	"github.com/brendoncarroll/go-state/cadata"
-	"github.com/gotvc/got/pkg/gotfs"
 	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/gotvc/got/pkg/gotkv/kvstreams"
 	"github.com/inet256/inet256/pkg/inet256"
@@ -20,7 +19,7 @@ import (
 
 type (
 	PeerID = owldag.PeerID
-	State  = gotfs.Root
+	State  = gotkv.Root
 )
 
 // UID uniquely identifies a contact.

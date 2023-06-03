@@ -1,10 +1,10 @@
 package rope
 
 import (
-	"errors"
 	"fmt"
 	"testing"
 
+	"github.com/brendoncarroll/go-exp/streams"
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/owlmessenger/owl/pkg/owldag"
 	"github.com/stretchr/testify/require"
@@ -48,7 +48,7 @@ func TestBuildIterate(t *testing.T) {
 		require.NoError(t, err, i)
 		require.Equal(t, Path{uint64(i)}, ent.Path)
 	}
-	require.ErrorIs(t, it.Next(ctx, &ent), EOS)
+	require.ErrorIs(t, it.Next(ctx, &ent), streams.EOS())
 }
 
 func TestCopyAppend(t *testing.T) {
@@ -99,7 +99,7 @@ func collect[Ref any](t testing.TB, it *Iterator[Ref]) (ret []Entry) {
 	for {
 		var ent Entry
 		err := it.Next(ctx, &ent)
-		if errors.Is(err, EOS) {
+		if streams.IsEOS(err) {
 			break
 		}
 		require.NoError(t, err)

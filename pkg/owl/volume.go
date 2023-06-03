@@ -11,6 +11,8 @@ import (
 	"github.com/owlmessenger/owl/pkg/dbutil"
 )
 
+const cellApplyMaxAttempts = 10
+
 // createVolume creates a new volume, with an empty cell.
 func createVolume(tx *sqlx.Tx) (int, error) {
 	sTopID, err := createStore(tx)
@@ -74,7 +76,7 @@ func modifyVolume(ctx context.Context, db *sqlx.DB, volumeID int, fn func(x []by
 		return err
 	}
 	s0, sTop := newStore(db, s0ID), newStore(db, sTopID)
-	return cells.Apply(ctx, c, func(x []byte) ([]byte, error) {
+	return cells.Apply(ctx, c, cellApplyMaxAttempts, func(x []byte) ([]byte, error) {
 		y, err := fn(x, s0, sTop)
 		if err != nil {
 			return nil, err

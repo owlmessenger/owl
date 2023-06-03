@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/brendoncarroll/go-exp/streams"
 	"github.com/brendoncarroll/go-state"
 )
 
@@ -68,7 +69,7 @@ func (it *Iterator[Ref]) Peek(ctx context.Context, ent *Entry) error {
 	}
 	ent.set(Path(it.offset), se.Value)
 	if !it.span.Contains(ent.Path, PathCompare) {
-		return EOS
+		return streams.EOS()
 	}
 	return nil
 }
@@ -88,7 +89,7 @@ func (it *Iterator[Ref]) Next(ctx context.Context, ent *Entry) error {
 	}
 	ent.set(Path(it.offset), se.Value)
 	if !it.span.Contains(ent.Path, PathCompare) {
-		return EOS
+		return streams.EOS()
 	}
 	it.offset.Add(it.offset, se.Weight)
 	return nil

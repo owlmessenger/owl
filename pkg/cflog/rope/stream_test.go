@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/brendoncarroll/go-exp/streams"
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/stretchr/testify/require"
 )
@@ -45,7 +46,7 @@ func TestWriteRead(t *testing.T) {
 		require.Equal(t, Weight{1}, ent.Weight)
 		require.Equal(t, expectV, ent.Value)
 	}
-	require.ErrorIs(t, sr.Next(ctx, &ent), EOS)
+	require.ErrorIs(t, sr.Next(ctx, &ent), streams.EOS())
 }
 
 func TestEntryWrite(t *testing.T) {

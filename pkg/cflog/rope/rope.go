@@ -2,13 +2,9 @@ package rope
 
 import (
 	"context"
-	"errors"
 
-	"github.com/gotvc/got/pkg/gotkv/kvstreams"
+	"github.com/brendoncarroll/go-exp/streams"
 )
-
-// EOS is the End-Of-Stream
-var EOS = kvstreams.EOS
 
 // Entry is a single entry in the Rope
 type Entry struct {
@@ -44,7 +40,7 @@ func Copy[Ref any](ctx context.Context, b *Builder[Ref], it *Iterator[Ref]) erro
 	for {
 		level := min(b.syncedBelow(), it.syncedBelow())
 		if err := it.readAt(ctx, level, &ent); err != nil {
-			if errors.Is(err, EOS) {
+			if streams.IsEOS(err) {
 				break
 			}
 			return err
@@ -62,7 +58,7 @@ func ListEntries[Ref any](ctx context.Context, s Storage[Ref], offset Weight, re
 	for {
 		var se StreamEntry
 		if err := sr.Next(ctx, &se); err != nil {
-			if errors.Is(err, EOS) {
+			if streams.IsEOS(err) {
 				break
 			}
 			return nil, err
@@ -80,7 +76,7 @@ func ListIndexes[Ref any](ctx context.Context, s Storage[Ref], ref Ref) (ret []I
 	for {
 		idx, err := readIndex(ctx, sr)
 		if err != nil {
-			if errors.Is(err, EOS) {
+			if streams.IsEOS(err) {
 				break
 			}
 			return nil, err

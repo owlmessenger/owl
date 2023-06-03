@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"log"
+
+	"github.com/brendoncarroll/go-exp/streams"
 )
 
 func singleRef[Ref any](ref Ref) func(context.Context) (*Ref, error) {
@@ -63,7 +65,7 @@ func (sr *StreamReader[Ref]) parseNext(ctx context.Context, ent *StreamEntry) (i
 			return 0, err
 		}
 		if ref == nil {
-			return 0, EOS
+			return 0, streams.EOS()
 		}
 		sr.end, err = sr.s.Get(ctx, *ref, sr.buf)
 		if err != nil {
@@ -72,7 +74,7 @@ func (sr *StreamReader[Ref]) parseNext(ctx context.Context, ent *StreamEntry) (i
 		sr.begin = 0
 	}
 	if sr.end-sr.begin <= 0 {
-		return 0, EOS
+		return 0, streams.EOS()
 	}
 	return parseEntry(ent, sr.buf[sr.begin:sr.end])
 }

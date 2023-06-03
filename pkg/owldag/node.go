@@ -6,10 +6,10 @@ import (
 	"errors"
 	"math"
 
+	"github.com/brendoncarroll/go-exp/heaps"
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/inet256/inet256/pkg/inet256"
-	"github.com/owlmessenger/owl/pkg/heap"
 	"github.com/owlmessenger/owl/pkg/slices2"
 	"golang.org/x/crypto/sha3"
 )
@@ -139,7 +139,7 @@ func ForEachDesc[T any](ctx context.Context, s cadata.Getter, ids []Ref, fn func
 	}
 	for len(nodes) > 0 {
 		var node Node[T]
-		node, nodes = heap.Pop(nodes, lt)
+		node, nodes = heaps.PopFunc(nodes, lt)
 		if err := fn(NewRef(node), node); err != nil {
 			return err
 		}
@@ -157,7 +157,7 @@ func ForEachDesc[T any](ctx context.Context, s cadata.Getter, ids []Ref, fn func
 				}
 			}
 			if !exists {
-				nodes = heap.Push(nodes, node, lt)
+				nodes = heaps.PushFunc(nodes, node, lt)
 			}
 		}
 	}

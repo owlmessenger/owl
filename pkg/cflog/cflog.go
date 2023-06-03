@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/brendoncarroll/go-exp/heaps"
+	"github.com/brendoncarroll/go-exp/streams"
 	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/brendoncarroll/go-tai64"
-	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/owlmessenger/owl/pkg/cflog/rope"
-	"github.com/owlmessenger/owl/pkg/heap"
 	"github.com/owlmessenger/owl/pkg/owldag"
 )
 
@@ -105,7 +105,7 @@ func (o *Operator) Read(ctx context.Context, s cadata.Store, x Root, begin Path,
 	var n int
 	for n < len(buf) {
 		if err := readEntry(ctx, it, &buf[n]); err != nil {
-			if errors.Is(err, gotkv.EOS) {
+			if errors.Is(err, streams.EOS()) {
 				break
 			}
 			return 0, err
@@ -136,7 +136,7 @@ func (o *Operator) interleave(ctx context.Context, b *rope.Builder[Ref], its []*
 		var ent rope.Entry
 		for i := range its {
 			if err := its[i].Next(ctx, &ent); err != nil {
-				if errors.Is(err, rope.EOS) {
+				if streams.IsEOS(err) {
 					continue
 				}
 				return err
@@ -147,7 +147,7 @@ func (o *Operator) interleave(ctx context.Context, b *rope.Builder[Ref], its []*
 			}
 			id := we.ID()
 			if _, exists := set[id]; !exists {
-				h = heap.Push(h, we, ltWireEntry)
+				h = heaps.PushFunc(h, we, ltWireEntry)
 				set[id] = struct{}{}
 			}
 		}
@@ -155,7 +155,7 @@ func (o *Operator) interleave(ctx context.Context, b *rope.Builder[Ref], its []*
 			break
 		}
 		var next *wireEntry
-		next, h = heap.Pop(h, ltWireEntry)
+		next, h = heaps.PopFunc(h, ltWireEntry)
 		delete(set, next.ID())
 		if err := writeEntry(ctx, b, 0, *next); err != nil {
 			return err
