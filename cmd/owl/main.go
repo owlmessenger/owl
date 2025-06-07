@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/owlmessenger/owl/pkg/owlcmd"
+	"github.com/owlmessenger/owl/src/owlcmd"
 )
 
 func main() {

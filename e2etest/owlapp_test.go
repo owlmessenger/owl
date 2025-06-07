@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/owlmessenger/owl/pkg/owl"
-	"github.com/owlmessenger/owl/pkg/owljsonrpc"
-	"github.com/owlmessenger/owl/pkg/owltest"
+	"github.com/owlmessenger/owl/src/owl"
+	"github.com/owlmessenger/owl/src/owljsonrpc"
+	"github.com/owlmessenger/owl/src/owltest"
 	"github.com/stretchr/testify/require"
 )
 
