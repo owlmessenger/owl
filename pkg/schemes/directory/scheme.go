@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv"
+	"go.brendoncarroll.net/state/cadata"
 	"golang.org/x/exp/slices"
 
 	"github.com/owlmessenger/owl/pkg/owldag"

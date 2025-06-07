@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/brendoncarroll/go-state/cadata"
-	"github.com/inet256/inet256/pkg/inet256test"
 	"github.com/stretchr/testify/require"
+	"go.brendoncarroll.net/state/cadata"
+	"go.inet256.org/inet256/pkg/inet256test"
 )
 
 var ctx = context.Background()

@@ -3,12 +3,15 @@ package owldag
 import (
 	"context"
 
-	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv"
-	"github.com/inet256/inet256/pkg/inet256"
-	"github.com/owlmessenger/owl/pkg/slices2"
+	"go.brendoncarroll.net/state/cadata"
+	"go.brendoncarroll.net/state/kv"
+	"go.inet256.org/inet256/pkg/inet256"
 	"golang.org/x/exp/constraints"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/owlmessenger/owl/pkg/slices2"
+	"github.com/owlmessenger/owl/pkg/stores"
 )
 
 type (
@@ -17,7 +20,7 @@ type (
 )
 
 type DAG[T any] struct {
-	gotkv                *gotkv.Operator
+	gotkv                *gotkv.Agent
 	scheme               Scheme[T]
 	dagStore, innerStore cadata.Store
 
@@ -27,7 +30,7 @@ type DAG[T any] struct {
 // New creates a new DAG using dagStore to store nodes, and passing innerStore to
 // the underlying scheme as needed.
 func New[T any](sch Scheme[T], dagStore, innerStore cadata.Store, state State[T]) *DAG[T] {
-	kvop := gotkv.NewOperator(1<<12, 1<<16)
+	kvop := gotkv.NewAgent(1<<12, 1<<16)
 	return &DAG[T]{
 		gotkv:      &kvop,
 		scheme:     sch,
@@ -167,7 +170,7 @@ func (d *DAG[T]) GetEpoch(ctx context.Context) (*Ref, error) {
 }
 
 // Pull takes a head and syncs the data structure from src.
-func (d *DAG[T]) Pull(ctx context.Context, src cadata.Getter, h Head) error {
+func (d *DAG[T]) Pull(ctx context.Context, src stores.GetExister, h Head) error {
 	if err := h.Verify(); err != nil {
 		return err
 	}
@@ -177,8 +180,8 @@ func (d *DAG[T]) Pull(ctx context.Context, src cadata.Getter, h Head) error {
 	return d.AddHead(ctx, h)
 }
 
-func (d *DAG[T]) pullNode(ctx context.Context, src cadata.Getter, ref Ref) error {
-	if exists, err := cadata.Exists(ctx, d.dagStore, ref); err != nil {
+func (d *DAG[T]) pullNode(ctx context.Context, src stores.GetExister, ref Ref) error {
+	if exists, err := src.Exists(ctx, ref); err != nil {
 		return err
 	} else if exists {
 		return nil
@@ -248,7 +251,7 @@ func (d *DAG[T]) CanRead(ctx context.Context, peer PeerID) (bool, error) {
 
 func (d *DAG[T]) ContainsAll(ctx context.Context, refs []Ref) (bool, error) {
 	for _, ref := range refs {
-		yes, err := cadata.Exists(ctx, d.dagStore, ref)
+		yes, err := kv.ExistsUsingList(ctx, d.dagStore, ref)
 		if err != nil {
 			return false, err
 		}

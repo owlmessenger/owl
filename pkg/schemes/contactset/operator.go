@@ -9,11 +9,11 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/gotvc/got/pkg/gotkv/kvstreams"
-	"github.com/inet256/inet256/pkg/inet256"
 	"github.com/owlmessenger/owl/pkg/owldag"
+	"go.brendoncarroll.net/state/cadata"
+	"go.inet256.org/inet256/pkg/inet256"
 	"golang.org/x/exp/slices"
 )
 
@@ -45,11 +45,11 @@ type Contact struct {
 }
 
 type Operator struct {
-	gotkv *gotkv.Operator
+	gotkv *gotkv.Agent
 }
 
 func New() Operator {
-	kvop := gotkv.NewOperator(1<<12, 1<<20)
+	kvop := gotkv.NewAgent(1<<12, 1<<20)
 	return Operator{gotkv: &kvop}
 }
 

@@ -6,10 +6,11 @@ import (
 	"errors"
 	"io"
 
-	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/jmoiron/sqlx"
 	"github.com/owlmessenger/owl/pkg/dbutil"
 	"github.com/owlmessenger/owl/pkg/owldag"
+	"go.brendoncarroll.net/state/cadata"
+	"go.brendoncarroll.net/state/kv"
 )
 
 // createStore allocates a new store ID which wil not be reused
@@ -64,7 +65,7 @@ func (s *txStore) Get(ctx context.Context, id cadata.ID, buf []byte) (int, error
 		WHERE store_id = ? AND blob_id = ?
 	`, s.intID, id[:]); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			err = cadata.ErrNotFound
+			err = cadata.ErrNotFound{Key: id}
 		}
 		return 0, err
 	}
@@ -82,7 +83,7 @@ func (s *txStore) Add(ctx context.Context, id cadata.ID) error {
 	if count > 0 {
 		return s.add(id)
 	} else {
-		return cadata.ErrNotFound
+		return cadata.ErrNotFound{Key: id}
 	}
 }
 
@@ -104,6 +105,10 @@ func (s *txStore) Delete(ctx context.Context, id cadata.ID) error {
 		}
 	}
 	return nil
+}
+
+func (s *txStore) Exists(ctx context.Context, id cadata.ID) (bool, error) {
+	return kv.ExistsUsingList(ctx, s, id)
 }
 
 func (s *txStore) List(ctx context.Context, span cadata.Span, ids []cadata.ID) (int, error) {
@@ -185,6 +190,13 @@ func (s *store) List(ctx context.Context, span cadata.Span, ids []cadata.ID) (in
 	return dbutil.DoTx1(ctx, s.db, func(tx *sqlx.Tx) (int, error) {
 		s2 := txStore{tx: tx, intID: s.intID}
 		return s2.List(ctx, span, ids)
+	})
+}
+
+func (s *store) Exists(ctx context.Context, id cadata.ID) (bool, error) {
+	return dbutil.DoTx1(ctx, s.db, func(tx *sqlx.Tx) (bool, error) {
+		s2 := txStore{tx: tx, intID: s.intID}
+		return s2.Exists(ctx, id)
 	})
 }
 

@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/owlmessenger/owl/pkg/owldag"
+	"go.brendoncarroll.net/state/cadata"
 	"golang.org/x/exp/slices"
 )
 

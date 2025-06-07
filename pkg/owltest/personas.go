@@ -3,8 +3,8 @@ package owltest
 import (
 	"testing"
 
-	"github.com/inet256/inet256/pkg/inet256"
 	"github.com/stretchr/testify/require"
+	"go.inet256.org/inet256/pkg/inet256"
 )
 
 func TestPersonaAPI(t *testing.T, sf SetupFunc) {

@@ -7,10 +7,10 @@ import (
 	"math"
 	"time"
 
-	"github.com/brendoncarroll/go-state"
-	"github.com/brendoncarroll/go-state/cadata"
-	"github.com/brendoncarroll/go-tai64"
 	"github.com/jmoiron/sqlx"
+	"go.brendoncarroll.net/state"
+	"go.brendoncarroll.net/state/cadata"
+	"go.brendoncarroll.net/tai64"
 
 	"github.com/owlmessenger/owl/pkg/cflog"
 	"github.com/owlmessenger/owl/pkg/dbutil"

@@ -3,7 +3,7 @@ package rope
 import (
 	"context"
 
-	"github.com/brendoncarroll/go-exp/streams"
+	"go.brendoncarroll.net/exp/streams"
 )
 
 // Entry is a single entry in the Rope

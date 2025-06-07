@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/brendoncarroll/go-state/cadata"
-	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/owlmessenger/owl/pkg/owldag"
 	"github.com/owlmessenger/owl/pkg/owlnet"
+	"go.brendoncarroll.net/state/cadata"
+	"go.brendoncarroll.net/stdctx/logctx"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 )

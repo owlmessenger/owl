@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/brendoncarroll/go-exp/streams"
-	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/owlmessenger/owl/pkg/owldag"
 	"github.com/stretchr/testify/require"
+	"go.brendoncarroll.net/exp/streams"
+	"go.brendoncarroll.net/state/cadata"
 )
 
 const (

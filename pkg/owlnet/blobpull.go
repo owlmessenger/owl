@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-state/cadata"
-	"github.com/inet256/inet256/pkg/inet256"
 	"github.com/owlmessenger/owl/pkg/owldag"
+	"go.brendoncarroll.net/p2p"
+	"go.brendoncarroll.net/state/cadata"
+	"go.inet256.org/inet256/pkg/inet256"
 )
 
 type BlobPullReq struct {
@@ -38,7 +38,7 @@ func (s *BlobPullServer) HandleAsk(ctx context.Context, resp []byte, msg p2p.Mes
 		return -1
 	}
 	n, err := store.Get(ctx, id, resp)
-	if errors.Is(err, cadata.ErrNotFound) {
+	if errors.Is(err, cadata.ErrNotFound{Key: id}) {
 		return copy(resp, id[:])
 	}
 	if err != nil {
@@ -64,7 +64,7 @@ func (c BlobPullClient) Pull(ctx context.Context, dst PeerID, h Handle, id cadat
 		return 0, err
 	}
 	if bytes.Equal(buf, id[:]) {
-		return 0, cadata.ErrNotFound
+		return 0, cadata.ErrNotFound{Key: id}
 	}
 	actual := owldag.Hash(buf[:n])
 	if actual != id {

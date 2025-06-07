@@ -3,7 +3,7 @@ package owl
 import (
 	"context"
 
-	"github.com/brendoncarroll/go-state/cadata"
+	"go.brendoncarroll.net/state/cadata"
 
 	"github.com/owlmessenger/owl/pkg/schemes/contactset"
 )

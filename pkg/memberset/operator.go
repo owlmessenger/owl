@@ -2,14 +2,13 @@ package memberset
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	"github.com/brendoncarroll/go-state"
-	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/gotvc/got/pkg/gotkv/kvstreams"
 	"github.com/owlmessenger/owl/pkg/owldag"
+	"go.brendoncarroll.net/state"
+	"go.brendoncarroll.net/state/cadata"
 )
 
 type PeerID = owldag.PeerID
@@ -22,10 +21,10 @@ type Peer struct {
 type State = gotkv.Root
 
 type Operator struct {
-	gotkv *gotkv.Operator
+	gotkv *gotkv.Agent
 }
 
-func New(kvop *gotkv.Operator) Operator {
+func New(kvop *gotkv.Agent) Operator {
 	return Operator{gotkv: kvop}
 }
 
@@ -83,7 +82,7 @@ func (o *Operator) RemovePeers(ctx context.Context, s cadata.Store, x State, pee
 
 func (o *Operator) Exists(ctx context.Context, s cadata.Store, x State, peer PeerID) (bool, error) {
 	_, err := o.gotkv.Get(ctx, s, x, peer[:])
-	if errors.Is(err, state.ErrNotFound) {
+	if state.IsErrNotFound[[]byte](err) {
 		return false, nil
 	} else if err != nil {
 		return false, err

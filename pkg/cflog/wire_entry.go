@@ -3,9 +3,9 @@ package cflog
 import (
 	"encoding/json"
 
-	"github.com/brendoncarroll/go-state/cadata"
-	"github.com/brendoncarroll/go-tai64"
 	"github.com/owlmessenger/owl/pkg/owldag"
+	"go.brendoncarroll.net/state/cadata"
+	"go.brendoncarroll.net/tai64"
 	"golang.org/x/crypto/sha3"
 )
 

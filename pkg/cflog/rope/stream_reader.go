@@ -6,7 +6,7 @@ import (
 	"errors"
 	"log"
 
-	"github.com/brendoncarroll/go-exp/streams"
+	"go.brendoncarroll.net/exp/streams"
 )
 
 func singleRef[Ref any](ref Ref) func(context.Context) (*Ref, error) {

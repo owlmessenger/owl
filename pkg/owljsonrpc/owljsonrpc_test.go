@@ -5,11 +5,11 @@ import (
 	"net"
 	"testing"
 
-	"github.com/inet256/inet256/client/go/inet256client"
 	"github.com/owlmessenger/owl/pkg/dbutil"
 	"github.com/owlmessenger/owl/pkg/owl"
 	"github.com/owlmessenger/owl/pkg/owltest"
 	"github.com/stretchr/testify/require"
+	"go.inet256.org/inet256/client/go/inet256client"
 )
 
 var ctx = context.Background()

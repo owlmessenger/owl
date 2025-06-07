@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/brendoncarroll/go-p2p"
-	"github.com/brendoncarroll/go-p2p/p/p2pmux"
-	"github.com/inet256/inet256/pkg/inet256"
 	"github.com/owlmessenger/owl/pkg/owldag"
+	"go.brendoncarroll.net/p2p"
+	"go.brendoncarroll.net/p2p/p/p2pmux"
+	"go.inet256.org/inet256/pkg/inet256"
 	"google.golang.org/grpc/codes"
 )
 

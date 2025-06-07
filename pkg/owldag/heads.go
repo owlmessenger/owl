@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/gotvc/got/pkg/gotkv/kvstreams"
-	"github.com/inet256/inet256/pkg/inet256"
+	"go.brendoncarroll.net/state/cadata"
+	"go.inet256.org/inet256/pkg/inet256"
 )
 
 const headPurpose = "owl/dag/head"
@@ -49,7 +49,7 @@ func (h Head) GetPeerID() (PeerID, error) {
 	return inet256.NewAddr(pubKey), nil
 }
 
-func addHead(ctx context.Context, kvop *gotkv.Operator, s cadata.Store, x gotkv.Root, h Head) (*gotkv.Root, error) {
+func addHead(ctx context.Context, kvop *gotkv.Agent, s cadata.Store, x gotkv.Root, h Head) (*gotkv.Root, error) {
 	pubKey, err := inet256.ParsePublicKey(h.PublicKey)
 	if err != nil {
 		return nil, err
@@ -62,7 +62,7 @@ func addHead(ctx context.Context, kvop *gotkv.Operator, s cadata.Store, x gotkv.
 	return kvop.Put(ctx, s, x, peerID[:], data)
 }
 
-func getHead(ctx context.Context, kvop *gotkv.Operator, s cadata.Store, x gotkv.Root, id PeerID) (*Head, error) {
+func getHead(ctx context.Context, kvop *gotkv.Agent, s cadata.Store, x gotkv.Root, id PeerID) (*Head, error) {
 	var h Head
 	if err := kvop.GetF(ctx, s, x, id[:], func(v []byte) error {
 		return json.Unmarshal(v, &h)
@@ -86,7 +86,7 @@ func getHead(ctx context.Context, kvop *gotkv.Operator, s cadata.Store, x gotkv.
 	return &h, nil
 }
 
-func getHeadRef(ctx context.Context, kvop *gotkv.Operator, s cadata.Store, x gotkv.Root, id PeerID) (*Ref, error) {
+func getHeadRef(ctx context.Context, kvop *gotkv.Agent, s cadata.Store, x gotkv.Root, id PeerID) (*Ref, error) {
 	h, err := getHead(ctx, kvop, s, x, id)
 	if err != nil {
 		return nil, err
@@ -94,7 +94,7 @@ func getHeadRef(ctx context.Context, kvop *gotkv.Operator, s cadata.Store, x got
 	return &h.Ref, nil
 }
 
-func validateHeads(ctx context.Context, kvop *gotkv.Operator, s cadata.Store, left, right gotkv.Root) error {
+func validateHeads(ctx context.Context, kvop *gotkv.Agent, s cadata.Store, left, right gotkv.Root) error {
 	leftIt := kvop.NewIterator(s, left, gotkv.TotalSpan())
 	rightIt := kvop.NewIterator(s, right, gotkv.TotalSpan())
 	return kvstreams.Diff(ctx, s, leftIt, rightIt, gotkv.TotalSpan(), func(key, lv, rv []byte) error {
@@ -102,7 +102,7 @@ func validateHeads(ctx context.Context, kvop *gotkv.Operator, s cadata.Store, le
 	})
 }
 
-func checkReplay(ctx context.Context, kvop *gotkv.Operator, s cadata.Store, headRoot gotkv.Root, h Head) error {
+func checkReplay(ctx context.Context, kvop *gotkv.Agent, s cadata.Store, headRoot gotkv.Root, h Head) error {
 	peerID, err := h.GetPeerID()
 	if err != nil {
 		return err

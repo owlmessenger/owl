@@ -3,7 +3,7 @@ package rope
 import (
 	"context"
 
-	"github.com/brendoncarroll/go-state/cadata"
+	"go.brendoncarroll.net/state/cadata"
 )
 
 type Storage[R any] interface {

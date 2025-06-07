@@ -3,7 +3,7 @@ package owldag
 import (
 	"context"
 
-	"github.com/brendoncarroll/go-state/cadata"
+	"go.brendoncarroll.net/state/cadata"
 )
 
 type ConsultFunc = func(PeerID) bool

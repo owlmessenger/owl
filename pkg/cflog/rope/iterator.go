@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/brendoncarroll/go-exp/streams"
-	"github.com/brendoncarroll/go-state"
+	"go.brendoncarroll.net/exp/streams"
+	"go.brendoncarroll.net/state"
 )
 
 type Span = state.Span[Path]

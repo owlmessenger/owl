@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/owlmessenger/owl/pkg/owldag"
 	"github.com/stretchr/testify/require"
+	"go.brendoncarroll.net/state/cadata"
 )
 
 var ctx = context.Background()

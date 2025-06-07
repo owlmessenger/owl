@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brendoncarroll/go-state/cadata"
-	"github.com/inet256/inet256/pkg/inet256"
+	"go.brendoncarroll.net/state/cadata"
+	"go.inet256.org/inet256/pkg/inet256"
 
 	"github.com/owlmessenger/owl/pkg/owldag"
 	"github.com/owlmessenger/owl/pkg/owlnet"

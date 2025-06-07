@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/brendoncarroll/go-exp/heaps"
-	"github.com/brendoncarroll/go-exp/streams"
-	"github.com/brendoncarroll/go-state/cadata"
-	"github.com/brendoncarroll/go-tai64"
 	"github.com/owlmessenger/owl/pkg/cflog/rope"
 	"github.com/owlmessenger/owl/pkg/owldag"
+	"go.brendoncarroll.net/exp/heaps"
+	"go.brendoncarroll.net/exp/streams"
+	"go.brendoncarroll.net/state/cadata"
+	"go.brendoncarroll.net/state/kv"
+	"go.brendoncarroll.net/tai64"
 )
 
 const MaxEntryLen = 4096
@@ -175,7 +176,7 @@ func (o *Operator) ValidateStep(ctx context.Context, s cadata.Getter, consult ow
 func (o *Operator) Sync(ctx context.Context, src cadata.Getter, dst cadata.Store, x Root) error {
 	return rope.Walk(ctx, rope.NewStorage(src), x, rope.Walker[Ref]{
 		Before: func(r Ref) bool {
-			exists, err := cadata.Exists(ctx, dst, r)
+			exists, err := kv.ExistsUsingList(ctx, dst, r)
 			return err != nil || !exists
 		},
 		ForEach: func(ent rope.Entry) error {

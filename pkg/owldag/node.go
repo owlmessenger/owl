@@ -6,11 +6,11 @@ import (
 	"errors"
 	"math"
 
-	"github.com/brendoncarroll/go-exp/heaps"
-	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv"
-	"github.com/inet256/inet256/pkg/inet256"
 	"github.com/owlmessenger/owl/pkg/slices2"
+	"go.brendoncarroll.net/exp/heaps"
+	"go.brendoncarroll.net/state/cadata"
+	"go.inet256.org/inet256/pkg/inet256"
 	"golang.org/x/crypto/sha3"
 )
 

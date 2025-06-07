@@ -5,9 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/json"
 
-	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/owlmessenger/owl/pkg/slices2"
+	"go.brendoncarroll.net/state/cadata"
 )
 
 // State is the current state of the feed.
@@ -50,7 +50,7 @@ func InitState[T any](ctx context.Context, s cadata.Store, x T, salt *[32]byte) 
 			return nil, err
 		}
 	}
-	kvop := gotkv.NewOperator(1<<12, MaxNodeSize)
+	kvop := gotkv.NewAgent(1<<12, MaxNodeSize)
 	sigsRoot, err := kvop.NewEmpty(ctx, s)
 	if err != nil {
 		return nil, err

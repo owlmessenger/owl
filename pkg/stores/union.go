@@ -5,7 +5,7 @@ import (
 	"errors"
 	"math/rand"
 
-	"github.com/brendoncarroll/go-state/cadata"
+	"go.brendoncarroll.net/state/cadata"
 )
 
 type Union []cadata.Getter
@@ -13,12 +13,12 @@ type Union []cadata.Getter
 func (s Union) Get(ctx context.Context, id cadata.ID, buf []byte) (int, error) {
 	for i := range s {
 		n, err := s[i].Get(ctx, id, buf)
-		if errors.Is(err, cadata.ErrNotFound) {
+		if errors.Is(err, cadata.ErrNotFound{Key: id}) {
 			continue
 		}
 		return n, err
 	}
-	return 0, cadata.ErrNotFound
+	return 0, cadata.ErrNotFound{Key: id}
 }
 
 func (s Union) MaxSize() (ret int) {

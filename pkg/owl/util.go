@@ -3,8 +3,8 @@ package owl
 import (
 	"context"
 
-	"github.com/brendoncarroll/go-state"
-	"github.com/inet256/inet256/pkg/inet256"
+	"go.brendoncarroll.net/state"
+	"go.inet256.org/inet256/pkg/inet256"
 )
 
 // func WatchChannel(ctx context.Context, s ChannelAPI, cid ChannelID, fn func(i EntryPath, e Entry) error) error {

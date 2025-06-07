@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/brendoncarroll/go-state"
-	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/gotvc/got/pkg/gotkv"
 	"github.com/gotvc/got/pkg/gotkv/kvstreams"
+	"go.brendoncarroll.net/state"
+	"go.brendoncarroll.net/state/cadata"
 	"golang.org/x/exp/slices"
 
 	"github.com/owlmessenger/owl/pkg/owldag"
@@ -32,11 +32,11 @@ type Value struct {
 type State = gotkv.Root
 
 type Operator struct {
-	gotkv *gotkv.Operator
+	gotkv *gotkv.Agent
 }
 
 func New() Operator {
-	gkv := gotkv.NewOperator(1<<12, 1<<16)
+	gkv := gotkv.NewAgent(1<<12, 1<<16)
 	return Operator{
 		gotkv: &gkv,
 	}

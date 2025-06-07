@@ -5,10 +5,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/brendoncarroll/go-state/cadata"
-	"github.com/brendoncarroll/go-state/cadata/storetest"
 	"github.com/owlmessenger/owl/pkg/dbutil"
 	"github.com/stretchr/testify/require"
+	"go.brendoncarroll.net/state/cadata"
+	"go.brendoncarroll.net/state/cadata/storetest"
 )
 
 func TestStore(t *testing.T) {

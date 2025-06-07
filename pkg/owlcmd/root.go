@@ -5,11 +5,11 @@ import (
 	"errors"
 	"os"
 
-	"github.com/brendoncarroll/stdctx/logctx"
-	"github.com/inet256/diet256"
-	"github.com/inet256/inet256/client/go/inet256client"
-	"github.com/inet256/inet256/pkg/inet256"
 	"github.com/spf13/cobra"
+	"go.brendoncarroll.net/stdctx/logctx"
+	"go.inet256.org/diet256"
+	"go.inet256.org/inet256/client/go/inet256client"
+	"go.inet256.org/inet256/pkg/inet256"
 	"go.uber.org/zap"
 
 	"github.com/owlmessenger/owl/pkg/owl"

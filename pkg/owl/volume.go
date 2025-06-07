@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/brendoncarroll/go-state/cadata"
-	"github.com/brendoncarroll/go-state/cells"
 	"github.com/jmoiron/sqlx"
+	"go.brendoncarroll.net/state/cadata"
+	"go.brendoncarroll.net/state/cells"
 
 	"github.com/owlmessenger/owl/pkg/dbutil"
 )
@@ -151,7 +151,7 @@ func lookupVolumeStores(tx dbutil.Reader, volumeID int) (s0, sTop int, _ error) 
 }
 
 type volume struct {
-	Cell   cells.Cell
+	Cell   cells.BytesCell
 	Stores [2]cadata.Store
 }
 

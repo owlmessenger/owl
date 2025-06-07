@@ -8,9 +8,9 @@ import (
 	"io"
 	"reflect"
 
-	"github.com/brendoncarroll/stdctx/logctx"
 	"github.com/owlmessenger/owl/pkg/owl"
 	"github.com/sourcegraph/jsonrpc2"
+	"go.brendoncarroll.net/stdctx/logctx"
 )
 
 // ServeRWC serves requests over an io.ReadWriteCloser rwc, using that Owl API o.

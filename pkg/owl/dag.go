@@ -3,9 +3,9 @@ package owl
 import (
 	"context"
 
-	"github.com/brendoncarroll/go-state/cadata"
 	"github.com/jmoiron/sqlx"
 	"github.com/owlmessenger/owl/pkg/owldag"
+	"go.brendoncarroll.net/state/cadata"
 )
 
 func initDAG[T any](tx *sqlx.Tx, volID int, initF func(s cadata.Store) (*T, error)) (*owldag.Ref, error) {

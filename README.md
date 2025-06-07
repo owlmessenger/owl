@@ -2,7 +2,7 @@
 <img src="./asset/owl_logo.png"/>
 
 Owl is a fully distributed peer-to-peer messenger, built with
-[INET256](https://github.com/inet256/inet256) and SQLite.
+[INET256](https://go.inet256.org/inet256) and SQLite.
 
 **[Documentation](./doc/00_TOC.md)**
 
